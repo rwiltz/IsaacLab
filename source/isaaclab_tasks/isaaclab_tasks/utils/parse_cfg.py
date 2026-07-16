@@ -184,6 +184,7 @@ def parse_env_cfg(
         RuntimeError: If the configuration for the task is not a class. We assume users always use a class for the
             environment configuration.
         TypeError: If ``overrides`` is a bare string instead of a list or tuple of override strings.
+        ValueError: If the task requires CUDA and a non-CUDA simulation device is requested.
     """
     if isinstance(overrides, str):
         raise TypeError(
@@ -199,9 +200,20 @@ def parse_env_cfg(
     if isinstance(cfg, dict):
         raise RuntimeError(f"Configuration for the task: '{task_name}' is not a class. Please provide a class.")
 
+    # Some contact-rich tasks are qualified only against CUDA PhysX. Reject an
+    # unsupported override instead of silently changing their physical contract.
+    effective_device = device if device is not None else cfg.sim.device
+    if getattr(cfg, "requires_cuda", False) and not effective_device.startswith("cuda"):
+        raise ValueError(f"Task '{task_name}' requires a CUDA simulation device, got {effective_device!r}")
+
     # simulation device
     if device is not None:
         cfg.sim.device = device
+        # Keep unified IsaacTeleop output tensors on the same device as the
+        # environment when a caller overrides the configuration default.
+        isaac_teleop_cfg = getattr(cfg, "isaac_teleop", None)
+        if isaac_teleop_cfg is not None:
+            isaac_teleop_cfg.sim_device = device
     # disable fabric to read/write through USD
     if use_fabric is not None:
         cfg.sim.use_fabric = use_fabric

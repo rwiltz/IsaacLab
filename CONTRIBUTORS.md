@@ -77,6 +77,7 @@ Guidelines for modifications:
 * Cheng-Rong Lai
 * Chenyu Cao
 * Chenyu Yang
+* Chris von Csefalvay
 * Connor Smith
 * CY (Chien-Ying) Chen
 * David Cao-Mueller
