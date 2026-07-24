@@ -93,6 +93,10 @@ app_launcher_args = vars(args_cli)
 app_launcher = AppLauncher(app_launcher_args)
 simulation_app = app_launcher.app
 
+# AppLauncher consumes (pops) ``enable_cameras`` from the namespace dict during launch; restore it
+# so the downstream camera-removal and RTX-render gates can read ``args_cli.enable_cameras``.
+args_cli.enable_cameras = not args_cli.disable_external_cameras
+
 # Call an external callback if requested.
 remaining_args_env_registration = None
 if args_cli.external_callback:
