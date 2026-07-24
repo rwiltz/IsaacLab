@@ -118,6 +118,12 @@ args_cli, remaining_args = parser.parse_known_args()
 if args_cli.task is None:
     parser.error("--task is required")
 
+# Default-enable external camera rendering for teleoperation recording. Set programmatically
+# because the ``--enable_cameras`` CLI flag was removed in Isaac Lab 3.0 (see #6656); AppLauncher
+# still consumes ``enable_cameras`` from the namespace. This also selects a camera-rendering
+# experience that provides RTX/DLSS support.
+args_cli.enable_cameras = True
+
 app_launcher_args = vars(args_cli)
 
 # launch the simulator
@@ -191,17 +197,30 @@ def _resolve_cloudxr_env(value: str | None) -> str | None:
 def _rtx_rendering_requested(args: argparse.Namespace) -> bool:
     """Return whether the CLI selects a renderer that actually drives RTX rendering.
 
-    The RTX/DLSS global settings (and the ``omni.replicator`` extension they configure)
-    are only meaningful when something renders through RTX. That happens when the Kit
-    visualizer is enabled (``--viz kit``), when external cameras are rendered
-    (``--enable_cameras``), or in XR mode (``--xr``, which drives the Kit XR pipeline).
-    A pure-headless session selects none of these and renders nothing.
+    The RTX/DLSS global settings are only meaningful when something renders through RTX.
+    That happens when the Kit visualizer is enabled (``--viz kit``), when external cameras
+    are enabled (``args.enable_cameras`` -- defaulted on for these teleop scripts), or in
+    XR mode (``--xr``). A pure-headless session with none of these renders nothing.
 
-    This intentionally reads the CLI intent rather than any Kit/carb runtime state so the
+    This reads the resolved namespace intent rather than any Kit/carb runtime state so the
     check keeps working as these scripts grow support for other renderers and kitless runs.
     """
     visualizers = getattr(args, "visualizer", None) or []
     return bool(getattr(args, "enable_cameras", False)) or ("kit" in visualizers) or bool(getattr(args, "xr", False))
+
+
+def _ensure_replicator_loaded() -> None:
+    """Enable ``omni.replicator.core`` so RTX/DLSS global settings can be applied.
+
+    :func:`apply_isaac_rtx_global_settings` sets the antialiasing mode through
+    ``omni.replicator.core``, which ships with the SDG/rendering extensions. Some Kit
+    experiences (e.g. the Kit-viewport-only app selected by ``--visualizer kit`` without
+    cameras or XR) do not preload it, so enable it on demand via the extension manager
+    before applying RTX settings. Idempotent when the extension is already enabled.
+    """
+    import omni.kit.app
+
+    omni.kit.app.get_app().get_extension_manager().set_extension_enabled_immediate("omni.replicator.core", True)
 
 
 class RateLimiter:
@@ -311,11 +330,11 @@ def create_environment_config(
         # If cameras are not enabled and XR is enabled, remove camera configs
         if not args_cli.enable_cameras:
             env_cfg = remove_camera_configs(env_cfg)
-    # Apply the RTX/DLSS global settings only when an RTX render pipeline will actually run
-    # (Kit visualizer, external cameras, or XR). Applying them pulls in ``omni.replicator``,
-    # which is not loaded in a pure-headless run (e.g. headless IsaacTeleop recording), where
-    # a ``ModuleNotFoundError`` would otherwise abort startup.
+    # Apply the RTX/DLSS global settings when an RTX render pipeline will run (Kit visualizer,
+    # external cameras, or XR). ``apply_isaac_rtx_global_settings`` uses ``omni.replicator``,
+    # which some experiences do not preload, so ensure it is loaded first.
     if _rtx_rendering_requested(args_cli):
+        _ensure_replicator_loaded()
         apply_isaac_rtx_global_settings(
             IsaacRtxRendererGlobalSettingsCfg(antialiasing_mode="DLSS"),
         )
