@@ -361,14 +361,25 @@ parser.add_argument(
     default=False,
     help="Enable hand joint and controller aim debug visualization at session start (IsaacTeleop only).",
 )
+parser.add_argument(
+    "--disable_external_cameras",
+    action="store_true",
+    default=False,
+    help=(
+        "Disable external camera rendering. External cameras render by default so the replay mimics"
+        " the production teleop env; pass this flag to strip camera sensors for a lighter headless"
+        " replay."
+    ),
+)
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
 
-# Default-enable external camera rendering so the replay mimics the production teleop env
-# (perf parity with live camera rendering). Set programmatically because the ``--enable_cameras``
-# CLI flag was removed in Isaac Lab 3.0 (see #6656); AppLauncher still consumes ``enable_cameras``
-# from the namespace. This also selects a camera-rendering experience that provides RTX/DLSS.
-args_cli.enable_cameras = True
+# Enable external camera rendering by default so the replay mimics the production teleop env (perf
+# parity with live camera rendering); ``--disable_external_cameras`` turns it off. Set programmatically
+# because the ``--enable_cameras`` CLI flag was removed in Isaac Lab 3.0 (see #6656); AppLauncher still
+# consumes ``enable_cameras`` from the namespace. When enabled this also selects a camera-rendering
+# experience that provides RTX/DLSS.
+args_cli.enable_cameras = not args_cli.disable_external_cameras
 
 app_launcher_args = vars(args_cli)
 app_launcher = AppLauncher(app_launcher_args)

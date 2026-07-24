@@ -65,17 +65,27 @@ parser.add_argument(
     default=None,
     help="Fully qualified path to an externally defined callback.",
 )
+parser.add_argument(
+    "--disable_external_cameras",
+    action="store_true",
+    default=False,
+    help=(
+        "Disable external camera rendering. External cameras render by default for teleoperation;"
+        " pass this flag to strip camera sensors from the environment (e.g. to reduce GPU contention"
+        " and improve XR performance)."
+    ),
+)
 
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
 # parse the arguments
 args_cli, remaining_args = parser.parse_known_args()
 
-# Default-enable external camera rendering for teleoperation. Set programmatically because
-# the ``--enable_cameras`` CLI flag was removed in Isaac Lab 3.0 (see #6656); AppLauncher
-# still consumes ``enable_cameras`` from the namespace. This also selects a camera-rendering
-# experience that provides RTX/DLSS support.
-args_cli.enable_cameras = True
+# Enable external camera rendering by default (``--disable_external_cameras`` turns it off). Set
+# programmatically because the ``--enable_cameras`` CLI flag was removed in Isaac Lab 3.0 (see
+# #6656); AppLauncher still consumes ``enable_cameras`` from the namespace. When enabled this also
+# selects a camera-rendering experience that provides RTX/DLSS support.
+args_cli.enable_cameras = not args_cli.disable_external_cameras
 
 app_launcher_args = vars(args_cli)
 
