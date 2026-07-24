@@ -364,6 +364,12 @@ parser.add_argument(
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
 
+# Default-enable external camera rendering so the replay mimics the production teleop env
+# (perf parity with live camera rendering). Set programmatically because the ``--enable_cameras``
+# CLI flag was removed in Isaac Lab 3.0 (see #6656); AppLauncher still consumes ``enable_cameras``
+# from the namespace. This also selects a camera-rendering experience that provides RTX/DLSS.
+args_cli.enable_cameras = True
+
 app_launcher_args = vars(args_cli)
 app_launcher = AppLauncher(app_launcher_args)
 simulation_app = app_launcher.app
@@ -1088,7 +1094,10 @@ def _prepare_env_cfg(
         )
     if hasattr(env_cfg.terminations, "time_out"):
         env_cfg.terminations.time_out = None
-    env_cfg = remove_camera_configs(env_cfg)
+    # Keep camera configs when external cameras are enabled (defaulted on) so the replay
+    # renders them for production parity; otherwise strip them for a lighter headless replay.
+    if not args_cli.enable_cameras:
+        env_cfg = remove_camera_configs(env_cfg)
     # The RTX/DLSS global settings only matter when an RTX render pipeline actually runs.
     # ``apply_isaac_rtx_global_settings`` uses ``omni.replicator`` (part of the SDG/rendering
     # extensions), which some experiences do not preload, so ensure it is loaded first. A
