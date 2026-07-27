@@ -152,7 +152,7 @@ Enable the visualization when launching a teleoperation session:
 .. code-block:: bash
 
    ./isaaclab.sh -p scripts/environments/teleoperation/teleop_se3_agent.py \
-       --task IsaacContrib-PickPlace-GR1T2-WaistEnabled-Abs \
+       --task IsaacContrib-PickPlace-Locomanipulation-G1-Abs \
        --visualizer kit \
        --xr \
        --enable_debug_visualization
@@ -1027,8 +1027,8 @@ for the headless profile, or pass a full file path for a custom profile:
       .. code-block:: bash
 
          # Use the AVP profile
-         uv run python scripts/environments/teleoperation/teleop_se3_agent.py \
-             --task IsaacContrib-PickPlace-GR1T2-WaistEnabled-Abs \
+         uv run --extra isaacsim --extra teleop isaaclab teleop \
+             --task IsaacContrib-PickPlace-G1-InspireFTP-Abs \
              --visualizer kit --xr \
              --cloudxr_env avp
 
@@ -1038,7 +1038,7 @@ for the headless profile, or pass a full file path for a custom profile:
 
          # Use the AVP profile
          ./isaaclab.sh -p scripts/environments/teleoperation/teleop_se3_agent.py \
-             --task IsaacContrib-PickPlace-GR1T2-WaistEnabled-Abs \
+             --task IsaacContrib-PickPlace-G1-InspireFTP-Abs \
              --visualizer kit --xr \
              --cloudxr_env avp
 
@@ -1050,7 +1050,8 @@ Copy a shipped profile and edit it:
 .. code-block:: bash
 
    # Start from the Quest/Pico profile
-   cp $(python -c "from isaaclab_teleop import CLOUDXR_JS_ENV; print(CLOUDXR_JS_ENV)") ~/my-cloudxr.env
+   cp $(uv run --extra isaacsim --extra teleop python -c \
+       "from isaaclab_teleop import CLOUDXR_JS_ENV; print(CLOUDXR_JS_ENV)") ~/my-cloudxr.env
 
 Edit ``~/my-cloudxr.env`` to change any values (e.g. ``NV_CXR_ENABLE_PUSH_DEVICES=1`` for
 Manus gloves), then pass it via ``--cloudxr_env ~/my-cloudxr.env``.
@@ -1072,14 +1073,14 @@ If you prefer to run the CloudXR runtime manually in a separate terminal
       .. code-block:: bash
 
          # Disable via CLI flag
-         uv run python scripts/environments/teleoperation/teleop_se3_agent.py \
-             --task IsaacContrib-PickPlace-GR1T2-WaistEnabled-Abs \
+         uv run --extra isaacsim --extra teleop isaaclab teleop \
+             --task IsaacContrib-PickPlace-Locomanipulation-G1-Abs \
              --visualizer kit --xr \
              --no-auto_launch_cloudxr
 
          # Or disable via environment variable
-         ISAACLAB_CXR_SKIP_AUTOLAUNCH=1 uv run python scripts/environments/teleoperation/teleop_se3_agent.py \
-             --task IsaacContrib-PickPlace-GR1T2-WaistEnabled-Abs \
+         ISAACLAB_CXR_SKIP_AUTOLAUNCH=1 uv run --extra isaacsim --extra teleop isaaclab teleop \
+             --task IsaacContrib-PickPlace-Locomanipulation-G1-Abs \
              --visualizer kit --xr
 
 
@@ -1089,13 +1090,13 @@ If you prefer to run the CloudXR runtime manually in a separate terminal
 
          # Disable via CLI flag
          ./isaaclab.sh -p scripts/environments/teleoperation/teleop_se3_agent.py \
-             --task IsaacContrib-PickPlace-GR1T2-WaistEnabled-Abs \
+             --task IsaacContrib-PickPlace-Locomanipulation-G1-Abs \
              --visualizer kit --xr \
              --no-auto_launch_cloudxr
 
          # Or disable via environment variable
          ISAACLAB_CXR_SKIP_AUTOLAUNCH=1 ./isaaclab.sh -p scripts/environments/teleoperation/teleop_se3_agent.py \
-             --task IsaacContrib-PickPlace-GR1T2-WaistEnabled-Abs \
+             --task IsaacContrib-PickPlace-Locomanipulation-G1-Abs \
              --visualizer kit --xr
 
 
@@ -1277,7 +1278,7 @@ Record Demonstrations for Imitation Learning
 ---------------------------------------------
 
 Isaac Teleop integrates with Isaac Lab's ``record_demos.py`` script for recording teleoperated
-demonstrations.
+demonstrations, exposed as the ``isaaclab record`` command.
 
 When your environment configuration has an ``isaac_teleop`` attribute, the script automatically
 uses ``create_isaac_teleop_device()`` -- no ``--teleop_device`` flag is needed:
@@ -1288,8 +1289,8 @@ uses ``create_isaac_teleop_device()`` -- no ``--teleop_device`` flag is needed:
 
       .. code-block:: bash
 
-         uv run python scripts/tools/record_demos.py \
-             --task IsaacContrib-PickPlace-GR1T2-WaistEnabled-Abs \
+         uv run --extra isaacsim --extra teleop isaaclab record \
+             --task IsaacContrib-PickPlace-Locomanipulation-G1-Abs \
              --visualizer kit \
              --xr
 
@@ -1298,7 +1299,7 @@ uses ``create_isaac_teleop_device()`` -- no ``--teleop_device`` flag is needed:
       .. code-block:: bash
 
          ./isaaclab.sh -p scripts/tools/record_demos.py \
-             --task IsaacContrib-PickPlace-GR1T2-WaistEnabled-Abs \
+             --task IsaacContrib-PickPlace-Locomanipulation-G1-Abs \
              --visualizer kit \
              --xr
 
@@ -1312,7 +1313,7 @@ the input device:
 
       .. code-block:: bash
 
-         uv run python scripts/tools/record_demos.py \
+         uv run --extra isaacsim --extra teleop isaaclab record \
              --task IsaacContrib-Stack-Cube-Galbot-Left-Arm-Gripper-RmpFlow \
              --visualizer kit \
              --teleop_device keyboard
@@ -1550,8 +1551,8 @@ Optimize XR Performance
 
    .. code-block:: bash
 
-      uv run python scripts/environments/teleoperation/teleop_se3_agent.py \
-          --task IsaacContrib-PickPlace-GR1T2-WaistEnabled-Abs \
+      uv run --extra isaacsim --extra teleop isaaclab teleop \
+          --task IsaacContrib-PickPlace-Locomanipulation-G1-Abs \
           --visualizer kit --xr \
           --disable_external_cameras
 
@@ -1569,8 +1570,8 @@ Optimize XR Performance
 
    .. code-block:: bash
 
-      uv run python scripts/environments/teleoperation/teleop_se3_agent.py \
-          --task IsaacContrib-PickPlace-GR1T2-WaistEnabled-Abs \
+      uv run --extra isaacsim --extra teleop isaaclab teleop \
+          --task IsaacContrib-PickPlace-Locomanipulation-G1-Abs \
           --viz none --xr
 
    In headless XR the OpenXR/AR session **starts automatically** -- there is no local viewport to
