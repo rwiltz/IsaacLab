@@ -30,7 +30,7 @@ the Isaac Sim pip package. Request those explicitly when needed.
      - ``isaaclab_teleop`` only (Linux x86_64). XR teleoperation also needs the Kit XR
        runtime, so pair it with ``isaacsim`` unless Isaac Sim is already installed:
        ``./isaaclab.sh -i 'teleop,isaacsim'``. The ``uv`` equivalent is
-       ``uv run --extra isaacsim --extra teleop`` (see :ref:`installation-method-teleop`).
+       ``uv run --extra xr`` (see :ref:`installation-method-teleop`).
 
 **Extra feature sets** (optional heavy dependencies on core packages):
 
