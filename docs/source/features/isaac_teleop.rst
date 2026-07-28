@@ -1028,7 +1028,7 @@ for the headless profile, or pass a full file path for a custom profile:
 
          # Use the AVP profile
          uv run --extra teleop isaaclab teleop run \
-             --task IsaacContrib-PickPlace-G1-InspireFTP-Abs \
+             --task IsaacContrib-PickPlace-GR1T2-WaistEnabled-Abs \
              --visualizer kit --xr \
              --cloudxr_env avp
 
@@ -1038,7 +1038,7 @@ for the headless profile, or pass a full file path for a custom profile:
 
          # Use the AVP profile
          ./isaaclab.sh -p scripts/environments/teleoperation/teleop_se3_agent.py \
-             --task IsaacContrib-PickPlace-G1-InspireFTP-Abs \
+             --task IsaacContrib-PickPlace-GR1T2-WaistEnabled-Abs \
              --visualizer kit --xr \
              --cloudxr_env avp
 
