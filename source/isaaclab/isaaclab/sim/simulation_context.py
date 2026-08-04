@@ -520,12 +520,11 @@ class SimulationContext:
                     f"{install_hints}"
                 )
 
-        # XR auto-start: auto-inject a KitVisualizer when XR is active and no
-        # Kit visualizer is already present.  The KitVisualizer pumps
-        # app.update() and triggers forward() (via requires_forward_before_step)
-        # to sync Fabric data so the XR runtime receives up-to-date hand/joint
-        # transforms each frame.
-        if self._xr_enabled and bool(self.get_setting("/isaaclab/xr/auto_start")):
+        # Auto-inject a KitVisualizer when XR is active and none is present. It pumps
+        # app.update() and triggers forward() (via requires_forward_before_step) to sync
+        # Fabric data so the XR runtime gets up-to-date transforms each frame. XR always
+        # needs this pump, whoever starts the session.
+        if self._xr_enabled:
             has_kit = any(getattr(cfg, "visualizer_type", None) == "kit" for cfg in resolved)
             if not has_kit:
                 try:

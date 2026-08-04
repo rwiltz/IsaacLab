@@ -123,14 +123,41 @@ and Isaac Lab. It composes three collaborators:
 
 .. dropdown:: Session lifecycle details
 
-   The session uses **deferred creation**: if the user has not yet clicked "Start XR" in the Isaac
-   Sim UI, the session is not created immediately. Instead, each call to ``advance()`` retries
-   session creation until OpenXR handles become available. Once connected, ``advance()`` returns a
-   flattened action tensor (``torch.Tensor``) on the configured device. It returns ``None`` when
-   the session is not yet ready or has been torn down.
+   The session uses **deferred creation**: Kit's XR system enables the AR profile on a later
+   event-loop tick, so the session is not created immediately. Instead, each call to ``advance()``
+   retries session creation until OpenXR handles become available. The same applies when session
+   start is left to an operator (see :ref:`isaac-teleop-xr-session-start`), which may take
+   arbitrarily long. Once connected, ``advance()`` returns a flattened action tensor
+   (``torch.Tensor``) on the configured device. It returns ``None`` when the session is not yet
+   ready or has been torn down.
 
    In standalone mode (:ref:`isaac-teleop-standalone`), creation is **not** gated on Kit XR
    handles -- the session starts as soon as the CloudXR runtime is available.
+
+.. _isaac-teleop-xr-session-start:
+
+.. dropdown:: Who starts the XR session
+
+   The OpenXR/AR session **starts automatically** whenever Isaac Lab launches the CloudXR
+   runtime, with or without a local viewport, so streaming begins as soon as a client connects.
+   There is no **Start XR** button to press.
+
+   Session start follows runtime ownership rather than headlessness: whoever brings the CloudXR
+   runtime up starts the session. Isaac Lab therefore leaves the session alone whenever it is
+   not launching the runtime -- with ``--no-auto_launch_cloudxr``, with
+   ``ISAACLAB_CXR_SKIP_AUTOLAUNCH=1`` (which takes precedence), or with ``--cloudxr_env none``.
+   An external operator, or the Kit **XR** panel under ``--visualizer kit``, starts it instead.
+
+   .. code-block:: bash
+
+      # Isaac Lab owns the runtime and starts the session (default)
+      uv run python scripts/environments/teleoperation/teleop_se3_agent.py \
+          --task IsaacContrib-PickPlace-GR1T2-WaistEnabled-Abs --xr
+
+      # An external operator owns the runtime and starts the session
+      uv run python scripts/environments/teleoperation/teleop_se3_agent.py \
+          --task IsaacContrib-PickPlace-GR1T2-WaistEnabled-Abs --xr \
+          --visualizer kit --no-auto_launch_cloudxr
 
 
 .. _isaac-teleop-tracking-debug-visualization:
@@ -1573,8 +1600,8 @@ Optimize XR Performance
           --task IsaacContrib-PickPlace-GR1T2-WaistEnabled-Abs \
           --viz none --xr
 
-   In headless XR the OpenXR/AR session **starts automatically** -- there is no local viewport to
-   click **Start XR**, so Isaac Lab begins streaming as soon as a CloudXR client connects.
+   Passing ``--xr`` without ``--visualizer kit`` runs headless automatically, so the local window
+   is opt-in rather than something to opt out of.
 
    .. note::
 

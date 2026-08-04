@@ -1298,12 +1298,6 @@ class AppLauncher:
 
         # set setting to indicate XR mode is enabled
         settings.set_bool("/isaaclab/xr/enabled", self._xr)
-        # set setting to indicate XR auto-start mode -- with no window to start the
-        # session from, the AR profile must be enabled programmatically so that the
-        # OpenXR session starts without user interaction. This must key off the
-        # resolved headless state: HEADLESS=1 and livestreaming both run windowless
-        # even when a Kit visualizer was explicitly requested.
-        settings.set_bool("/isaaclab/xr/auto_start", self._xr and self._headless)
         # set setting to indicate video recording mode
         settings.set_bool("/isaaclab/video/enabled", self._video_enabled)
 

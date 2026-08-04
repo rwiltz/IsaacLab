@@ -1283,6 +1283,21 @@ class TeleopSessionLifecycle:
     # CloudXR runtime auto-launch
     # ------------------------------------------------------------------
 
+    def _cloudxr_not_owned_reason(self) -> str | None:
+        """Why Isaac Lab does not own the CloudXR runtime, or ``None`` when it does.
+
+        Owning the runtime means Isaac Lab launches it and therefore also starts the XR
+        session (see :meth:`_ensure_xr_ar_profile_enabled`). Returns a short reason string
+        suitable for logging; the environment variable takes precedence over the flag.
+        """
+        if self._cloudxr_env_file is None:
+            return "no CloudXR profile configured"
+        if os.environ.get("ISAACLAB_CXR_SKIP_AUTOLAUNCH", "").strip() == "1":
+            return "ISAACLAB_CXR_SKIP_AUTOLAUNCH=1"
+        if not self._auto_launch_cloudxr:
+            return "auto_launch_cloudxr=False"
+        return None
+
     def _ensure_cloudxr_runtime(self) -> None:
         """Launch the CloudXR runtime and WSS proxy if configured.
 
@@ -1291,19 +1306,14 @@ class TeleopSessionLifecycle:
         TLS proxy in a background thread.  The launcher is stored in
         ``self._cloudxr_launcher`` and shut down in :meth:`stop`.
 
-        Auto-launch is skipped when ``auto_launch_cloudxr`` is ``False``
-        or the ``ISAACLAB_CXR_SKIP_AUTOLAUNCH=1`` environment variable is
-        set (the env var takes precedence).
+        Skipped when :meth:`_cloudxr_not_owned_reason` gives a reason.
         """
         if self._cloudxr_launcher is not None:
             return
 
-        if os.environ.get("ISAACLAB_CXR_SKIP_AUTOLAUNCH", "").strip() == "1":
-            logger.info("CloudXR auto-launch skipped (ISAACLAB_CXR_SKIP_AUTOLAUNCH=1)")
-            return
-
-        if not self._auto_launch_cloudxr:
-            logger.info("CloudXR auto-launch disabled (auto_launch_cloudxr=False)")
+        reason = self._cloudxr_not_owned_reason()
+        if reason is not None:
+            logger.info("CloudXR auto-launch skipped (%s)", reason)
             return
 
         from pathlib import Path
@@ -1323,34 +1333,36 @@ class TeleopSessionLifecycle:
 
     _xr_ar_profile_enabled = False
 
-    @classmethod
-    def _ensure_xr_ar_profile_enabled(cls) -> None:
-        """Enable the XR AR profile via carb.settings when running headless.
+    def _ensure_xr_ar_profile_enabled(self) -> None:
+        """Enable the XR AR profile via carb.settings so the session starts itself.
 
-        In headless mode the ``xr.profile.ar.enabled`` setting is intentionally
-        omitted from the ``.kit`` file so that all extensions — including
+        The ``xr.profile.ar.enabled`` setting is intentionally omitted from the
+        ``.kit`` files so that all extensions — including
         ``isaacsim.kit.xr.teleop.bridge`` and its ``BridgeComponent`` — can
         load and register with Kit's XR system *before* the OpenXR instance is
         created.  This method sets the flag from Python once extensions are
         loaded.  Kit's XR system picks up the change on the next event-loop
         tick, which is why handle acquisition may be deferred by one frame.
 
-        Headless mode is detected via the ``/isaaclab/xr/auto_start`` carb
-        setting which the :class:`~isaaclab.app.AppLauncher` stores after
-        resolving the headless state from visualizer intent. In
-        non-headless mode this is a no-op because Kit's profile system manages
-        AR activation through the UI.
+        Gated on :meth:`_cloudxr_not_owned_reason` rather than on headlessness:
+        whoever launches the CloudXR runtime starts the session, with or without a
+        local window. Otherwise this is a no-op and the session is started
+        externally or through the Kit **XR** panel.
         """
-        if cls._xr_ar_profile_enabled:
+        # The AR profile is global to the Kit process, so only the first session touches it.
+        if TeleopSessionLifecycle._xr_ar_profile_enabled:
             return
-        cls._xr_ar_profile_enabled = True
+        TeleopSessionLifecycle._xr_ar_profile_enabled = True
+
+        reason = self._cloudxr_not_owned_reason()
+        if reason is not None:
+            logger.info("Leaving XR session start to the operator (%s)", reason)
+            return
+
         try:
             import carb.settings
 
             settings = carb.settings.get_settings()
-
-            if not settings.get("/isaaclab/xr/auto_start"):
-                return
 
             if not settings.get("/xr/profile/ar/enabled"):
                 settings.set("/xr/profile/ar/enabled", True)

@@ -318,6 +318,95 @@ class TestEnsureCloudXRRuntime:
 
 
 # ============================================================================
+# XR AR profile auto-start
+# ============================================================================
+
+
+class TestEnsureXrArProfileEnabled:
+    """Tests that XR session start follows CloudXR runtime ownership.
+
+    Whoever launches the CloudXR runtime starts the session. Isaac Lab enables the AR
+    profile only when it owns the runtime -- with or without a local window -- and
+    otherwise leaves the session to be started externally or from the Kit **XR** panel.
+    """
+
+    @staticmethod
+    def _run(
+        auto_launch_cloudxr: bool = True,
+        skip_env: str | None = None,
+        cloudxr_env_file: str | None = "/tmp/test.env",
+    ) -> MagicMock:
+        """Invoke the gate with carb stubbed, returning the fake settings object.
+
+        The lifecycle is built without ``__init__``, which subscribes to carb settings and
+        so needs this module's stubs to be the ones in ``sys.modules``; bypassing it keeps
+        these cases hermetic when the suite runs alongside tests that import real carb.
+        """
+        lifecycle = object.__new__(TeleopSessionLifecycle)
+        lifecycle._auto_launch_cloudxr = auto_launch_cloudxr
+        lifecycle._cloudxr_env_file = cloudxr_env_file
+        # Reset the once-per-process latch so each case actually exercises the gate.
+        TeleopSessionLifecycle._xr_ar_profile_enabled = False
+
+        settings = MagicMock()
+        settings.get.return_value = False
+        carb_settings = MagicMock()
+        carb_settings.get_settings.return_value = settings
+        carb = MagicMock()
+        carb.settings = carb_settings
+
+        with (
+            patch.dict(os.environ, {}, clear=False),
+            patch.dict(sys.modules, {"carb": carb, "carb.settings": carb_settings}),
+        ):
+            os.environ.pop("ISAACLAB_CXR_SKIP_AUTOLAUNCH", None)
+            if skip_env is not None:
+                os.environ["ISAACLAB_CXR_SKIP_AUTOLAUNCH"] = skip_env
+            lifecycle._ensure_xr_ar_profile_enabled()
+
+        return settings
+
+    def test_enables_ar_profile_when_isaac_lab_owns_the_runtime(self):
+        """Launching the runtime also starts the XR session."""
+        settings = self._run()
+
+        settings.set.assert_called_once_with("/xr/profile/ar/enabled", True)
+
+    def test_leaves_ar_profile_alone_when_auto_launch_disabled(self):
+        """``--no-auto_launch_cloudxr`` leaves session start to the operator."""
+        settings = self._run(auto_launch_cloudxr=False)
+
+        settings.set.assert_not_called()
+
+    def test_leaves_ar_profile_alone_when_skip_env_set(self):
+        """``ISAACLAB_CXR_SKIP_AUTOLAUNCH=1`` overrides ``auto_launch_cloudxr=True``."""
+        settings = self._run(skip_env="1")
+
+        settings.set.assert_not_called()
+
+    def test_leaves_ar_profile_alone_without_a_cloudxr_profile(self):
+        """``--cloudxr_env none`` launches no runtime, so it must not start the session."""
+        settings = self._run(cloudxr_env_file=None)
+
+        settings.set.assert_not_called()
+
+    def test_only_the_first_session_touches_the_global_profile(self):
+        """The AR profile is process-global, so a second session leaves it alone."""
+        self._run()
+        settings = MagicMock()
+        carb_settings = MagicMock()
+        carb_settings.get_settings.return_value = settings
+        lifecycle = object.__new__(TeleopSessionLifecycle)
+        lifecycle._auto_launch_cloudxr = True
+        lifecycle._cloudxr_env_file = "/tmp/test.env"
+
+        with patch.dict(sys.modules, {"carb": MagicMock(settings=carb_settings), "carb.settings": carb_settings}):
+            lifecycle._ensure_xr_ar_profile_enabled()
+
+        settings.set.assert_not_called()
+
+
+# ============================================================================
 # Lifecycle start/stop integration with CloudXR
 # ============================================================================
 

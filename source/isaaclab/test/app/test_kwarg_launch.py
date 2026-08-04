@@ -83,17 +83,15 @@ _XR_KIT = {"xr": True, "visualizer": ["kit"], "visualizer_explicit": True}
         ({}, 0, 0, False),
     ],
 )
-def test_xr_auto_start_tracks_resolved_headless(
+def test_xr_without_explicit_kit_visualizer_forces_headless(
     launcher_args: dict, headless_env: int, livestream: int, expected_headless: bool, monkeypatch
 ):
-    """Test that XR runs headless without an explicit Kit visualizer, and auto-starts when it does.
+    """Test that enabling XR runs headless unless a Kit visualizer is explicitly requested.
 
-    A task config declaring a Kit visualizer must not leave ``--xr`` non-headless, since the XR
-    session auto-starts. Conversely ``HEADLESS=1`` and livestreaming run windowless even when
-    ``--visualizer kit`` was requested, so auto-start must follow the *resolved* headless state
-    rather than the visualizer selection alone -- otherwise the session waits forever for a
-    "Start XR" click that no window can deliver. Resolution is exercised directly to avoid
-    launching Isaac Sim.
+    A task config declaring a Kit visualizer must not leave ``--xr`` opening a window nobody
+    asked for, and ``HEADLESS=1`` / livestreaming must keep forcing headless even when
+    ``--visualizer kit`` was requested. Resolution is exercised directly to avoid launching
+    Isaac Sim.
     """
     monkeypatch.setenv("HEADLESS", str(headless_env))
     launcher = object.__new__(AppLauncher)
@@ -108,9 +106,6 @@ def test_xr_auto_start_tracks_resolved_headless(
     launcher._resolve_headless_settings(args, livestream_arg=-1, livestream_env=-1)
 
     assert launcher._headless is expected_headless
-    # This is the expression published as ``/isaaclab/xr/auto_start``: the session must start
-    # itself exactly when XR is on and no window exists to start it from.
-    assert (launcher._xr and launcher._headless) is (bool(launcher_args.get("xr")) and expected_headless)
 
 
 def test_launch_simulation_preserves_failure_exit_code(monkeypatch: pytest.MonkeyPatch):

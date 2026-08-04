@@ -285,39 +285,45 @@ use the ``--cloudxr_env`` flag:
 For details on the shipped ``.env`` profiles and how to customise them, see
 :ref:`isaac-teleop-cloudxr-profiles` in the feature guide.
 
-Then in the Isaac Sim UI:
+The XR session starts automatically -- there is no **Start XR** button to press. Isaac Lab
+launches the CloudXR runtime and enables the AR profile for you, so it is ready to receive
+connections as soon as the script is up.
 
-#. Locate the panel named **XR** and choose the following options:
+With ``--visualizer kit`` you should see "Waiting for connection" in the status bar at the bottom
+of the viewport. The dual-eye stereo render only becomes active once a headset connects and
+playback begins on the device.
 
-   * Selected Output Plugin: **OpenXR**
-   * OpenXR Runtime: **System OpenXR Runtime**
+.. figure:: ../_static/setup/cloudxr_viewport.jpg
+   :align: center
+   :figwidth: 100%
+   :alt: Isaac Lab viewport showing "Waiting for connection" status
+
+Isaac Lab is now ready to receive connections from a CloudXR client.
+
+.. note::
+
+   **Running headless (no local UI).** ``--visualizer kit`` above opens a local viewport, which
+   is useful for watching the scene but is not required for XR. On a server or cloud instance
+   without a display, omit ``--visualizer`` (headless is the default) or pass
+   ``--visualizer none`` / ``--viz none``. XR behaves identically either way. Passing ``--xr``
+   without ``--visualizer kit`` runs headless automatically. The ``--headless`` flag was removed
+   in Isaac Lab 3.0; ``HEADLESS=1`` in the environment also forces headless.
+
+.. note::
+
+   **Starting the session yourself.** Pass ``--no-auto_launch_cloudxr`` when an external operator
+   owns the CloudXR runtime. Isaac Lab then neither launches the runtime nor starts the XR
+   session, leaving both to you -- with ``--visualizer kit`` you can start it from the **XR**
+   panel (Selected Output Plugin: **OpenXR**, OpenXR Runtime: **System OpenXR Runtime**, then
+   **Start XR**).
 
    .. figure:: ../_static/setup/cloudxr_ar_panel.jpg
       :align: center
       :figwidth: 50%
       :alt: Isaac Sim UI: XR Panel
 
-#. Click **Start XR**.
-
-You should see "Waiting for connection" displayed in the status bar at the bottom of the viewport.
-The dual-eye stereo render only becomes active once a headset connects and playback begins on the device.
-
-.. figure:: ../_static/setup/cloudxr_viewport.jpg
-   :align: center
-   :figwidth: 100%
-   :alt: Isaac Lab viewport showing "Waiting for connection" status after clicking Start XR
-
-Isaac Lab is now ready to receive connections from a CloudXR client.
-
-.. note::
-
-   **Running headless (no local UI).** The commands above use ``--visualizer kit`` to open the
-   local Kit viewport, where you click **Start XR**. On a server or cloud instance without a
-   display, run headless instead: omit ``--visualizer`` (headless is the default) or pass
-   ``--visualizer none`` / ``--viz none``. In headless XR the AR session starts automatically --
-   there is no viewport to click **Start XR** -- so Isaac Lab begins streaming as soon as a
-   CloudXR client connects. The ``--headless`` flag was removed in Isaac Lab 3.0; ``HEADLESS=1``
-   in the environment also forces headless.
+   ``ISAACLAB_CXR_SKIP_AUTOLAUNCH=1`` does the same and takes precedence over the flag, as does
+   ``--cloudxr_env none``. See :ref:`isaac-teleop-xr-session-start` for details.
 
 
 .. _connect-xr-device:
@@ -599,7 +605,7 @@ For plugin configuration details, see the `Manus plugin documentation
 
 The recommended workflow:
 
-#. Start Isaac Lab and click **Start XR**.
+#. Start Isaac Lab and wait for the XR session to come up.
 #. Put on the Manus gloves and headset.
 #. Use voice commands to launch the Isaac XR Teleop Sample Client and connect to Isaac Lab.
 
@@ -667,10 +673,10 @@ Run the teleop script (e.g. ``record_demos.py`` to record demonstrations):
            --dataset_file ./datasets/dataset.hdf5 \
            --xr --visualizer kit
 
-Then in the Isaac Sim UI, set the XR panel to **System OpenXR Runtime** and click **Start XR**.
+The XR session starts on its own; no interaction with the Isaac Sim UI is needed.
 
-For a fully headless experience, replace ``--visualizer kit`` with ``--visualizer none`` or
-``--viz none`` and the XR teleop session will run automatically.
+For a fully headless experience, drop ``--visualizer kit`` (or pass ``--visualizer none`` /
+``--viz none``). The XR teleop session behaves identically either way.
 
 .. admonition:: Next Steps
 
