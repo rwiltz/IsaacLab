@@ -147,7 +147,7 @@ rerun = [
     "pyarrow==22.0.0",  # match rerun-sdk's Arrow stack
 ]
 
-isaacsim = ["isaacsim[all,extscache]==6.0.1.0"]
+isaacsim = ["isaacsim[all,extscache]==6.1.0a42+develop.46141.9d79024d.gl"]
 
 ov = ["ovphysx==0.5.9", "ovrtx>=0.4.0,<0.5.0", "ovstage>=0.1.0,<0.2.0"]
 ovphysx = ["ovphysx==0.5.9", "ovstage>=0.1.0,<0.2.0"]
@@ -162,7 +162,7 @@ mimic = [
 # XR teleoperation: carries Isaac Sim for the Kit XR runtime, and isaaclab_mimic because
 # ``isaaclab teleop record`` imports it (robomimic stays in ``mimic``).
 teleop = [
-    "isaacsim[all,extscache]==6.0.1.0",
+    "isaacsim[all,extscache]==6.1.0a42+develop.46141.9d79024d.gl",
     "isaaclab-teleop",
     "isaaclab-mimic",
     # IsaacTeleop is Linux x86_64 only
@@ -198,7 +198,7 @@ leapp = [
 # the extras above, and [tool.uv].override-dependencies mirror these values;
 # ``test_version_single_source`` fails CI if they drift.
 [tool.isaaclab.versions]
-isaacsim = "6.0.1.0"
+isaacsim = "6.1.0a42+develop.46141.9d79024d.gl"
 torch = "2.11.0"
 torchvision = "0.26.0"
 torchaudio = "2.11.0"
@@ -355,6 +355,11 @@ name = "pypi-public"
 url = "https://pypi.org/simple"
 explicit = true
 
+# TEST BRANCH ONLY -- internal index, not reachable outside NVIDIA. Do not merge.
+[[tool.uv.index]]
+name = "isaacsim-internal"
+url = "https://artifactory.pdx.nvidia.com/artifactory/api/pypi/sw-isaacsim-pypi-local/simple"
+
 [[tool.uv.index]]
 name = "pytorch-cu128"
 url = "https://download.pytorch.org/whl/cu128"
@@ -393,10 +398,6 @@ override-dependencies = [
     "torch==2.11.0",
     "torchvision==0.26.0",
     "torchaudio==2.11.0",
-    # Isaac Sim 6.0 pins these exactly; drop all three once Isaac Sim 6.1 is published.
-    "typing-extensions>=4.15.0",
-    "websockets>=14.0,<17.0.0",
-    "coverage>=7.6.1",
 ]
 # ovphysx pins packaging>=20,<24 while isaacsim-core pins packaging==26.0: a genuine
 # two-sided incompatibility, so uv forks the resolution instead of failing. ``teleop``
