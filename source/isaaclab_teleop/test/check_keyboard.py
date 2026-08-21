@@ -23,7 +23,8 @@ simulation_app = app_launcher.app
 
 import sys
 
-from isaaclab.devices import Se3Keyboard, Se3KeyboardCfg
+from isaaclab_teleop.keyboard import Se3Keyboard, Se3KeyboardCfg
+
 from isaaclab.sim import SimulationCfg, SimulationContext
 
 
