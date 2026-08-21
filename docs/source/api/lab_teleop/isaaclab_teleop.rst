@@ -11,6 +11,10 @@ isaaclab_teleop
 
     IsaacTeleopCfg
     IsaacTeleopDevice
+    Se2Keyboard
+    Se2KeyboardCfg
+    Se3Keyboard
+    Se3KeyboardCfg
     XrCameraFeedCfg
     XrCameraFeedLayoutCfg
     XrCameraFeedSession
@@ -63,6 +67,23 @@ Device
     :show-inheritance:
 
 .. autofunction:: create_isaac_teleop_device
+
+Keyboard
+--------
+
+.. autoclass:: Se2Keyboard
+    :members:
+    :show-inheritance:
+
+.. autoclass:: Se2KeyboardCfg
+    :members:
+
+.. autoclass:: Se3Keyboard
+    :members:
+    :show-inheritance:
+
+.. autoclass:: Se3KeyboardCfg
+    :members:
 
 Haptic Feedback
 ---------------

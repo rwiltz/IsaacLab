@@ -12,13 +12,10 @@ from isaaclab_teleop.deprecated.openxr.retargeters import GripperRetargeterCfg, 
 
 # Import teleop device factory for testing
 from isaaclab_teleop.deprecated.teleop_device_factory import create_teleop_device
+from isaaclab_teleop.keyboard import Se3Keyboard, Se3KeyboardCfg
 
 # Import device classes to test
-from isaaclab.devices import (
-    DeviceCfg,
-    Se3Keyboard,
-    Se3KeyboardCfg,
-)
+from isaaclab.devices import DeviceCfg
 
 
 @pytest.fixture
@@ -137,7 +134,7 @@ def test_create_teleop_device_basic(mock_environment, mocker):
     keyboard_cfg = Se3KeyboardCfg(pos_sensitivity=0.8, rot_sensitivity=1.2)
     devices_cfg: dict[str, DeviceCfg] = {"test_keyboard": keyboard_cfg}
 
-    device_mod = importlib.import_module("isaaclab.devices.keyboard.se3_keyboard")
+    device_mod = importlib.import_module("isaaclab_teleop.keyboard.se3_keyboard")
     mocker.patch.dict("sys.modules", {"carb": mock_environment["carb"], "omni": mock_environment["omni"]})
     mocker.patch.object(device_mod, "carb", mock_environment["carb"])
     mocker.patch.object(device_mod, "omni", mock_environment["omni"])
