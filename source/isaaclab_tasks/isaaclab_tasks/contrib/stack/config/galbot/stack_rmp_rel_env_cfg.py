@@ -8,10 +8,10 @@ import os
 
 from isaaclab_physx.physics import PhysxCfg
 from isaaclab_physx.renderers import IsaacRtxRendererCfg
+from isaaclab_teleop.keyboard import Se3KeyboardCfg
 
 import isaaclab.sim as sim_utils
 from isaaclab.devices.device_base import DevicesCfg
-from isaaclab.devices.keyboard import Se3KeyboardCfg
 from isaaclab.devices.spacemouse import Se3SpaceMouseCfg
 from isaaclab.envs.mdp.actions.rmpflow_actions_cfg import RMPFlowActionCfg
 from isaaclab.sensors import CameraCfg, FrameTransformerCfg

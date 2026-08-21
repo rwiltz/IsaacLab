@@ -6,9 +6,10 @@
 import os
 from dataclasses import MISSING
 
+from isaaclab_teleop.keyboard import Se3KeyboardCfg
+
 from isaaclab.assets import AssetBaseCfg, RigidObjectCfg
 from isaaclab.devices.device_base import DevicesCfg
-from isaaclab.devices.keyboard import Se3KeyboardCfg
 from isaaclab.devices.spacemouse import Se3SpaceMouseCfg
 from isaaclab.envs.mdp.actions.rmpflow_actions_cfg import RMPFlowActionCfg
 from isaaclab.managers import EventTermCfg as EventTerm

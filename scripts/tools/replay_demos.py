@@ -84,8 +84,8 @@ import os
 
 import gymnasium as gym
 import torch
+from isaaclab_teleop.keyboard import Se3Keyboard, Se3KeyboardCfg
 
-from isaaclab.devices import Se3Keyboard, Se3KeyboardCfg
 from isaaclab.utils.datasets import EpisodeData, HDF5DatasetFileHandler
 
 import isaaclab_tasks  # noqa: F401

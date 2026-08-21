@@ -3,6 +3,8 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-""".. deprecated:: Moved to :mod:`isaaclab_teleop.keyboard.se3_keyboard_cfg`."""
+"""Keyboard device for SE(2) and SE(3) control."""
 
-from isaaclab_teleop.keyboard.se3_keyboard_cfg import *  # noqa: F401,F403
+from isaaclab.utils.module import lazy_export
+
+lazy_export()

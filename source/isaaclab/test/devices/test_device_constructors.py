@@ -15,14 +15,10 @@ from isaaclab.devices import (
     HaplyDeviceCfg,
     Se2Gamepad,
     Se2GamepadCfg,
-    Se2Keyboard,
-    Se2KeyboardCfg,
     Se2SpaceMouse,
     Se2SpaceMouseCfg,
     Se3Gamepad,
     Se3GamepadCfg,
-    Se3Keyboard,
-    Se3KeyboardCfg,
     Se3SpaceMouse,
     Se3SpaceMouseCfg,
 )
@@ -80,62 +76,10 @@ def mock_environment(mocker):
 
 
 """
-Test keyboard devices.
-"""
-
-
-def test_se2keyboard_constructors(mock_environment, mocker):
-    """Test constructor for Se2Keyboard."""
-    # Test config-based constructor
-    config = Se2KeyboardCfg(
-        v_x_sensitivity=0.9,
-        v_y_sensitivity=0.5,
-        omega_z_sensitivity=1.2,
-    )
-    device_mod = importlib.import_module("isaaclab.devices.keyboard.se2_keyboard")
-    mocker.patch.dict("sys.modules", {"carb": mock_environment["carb"], "omni": mock_environment["omni"]})
-    mocker.patch.object(device_mod, "carb", mock_environment["carb"])
-    mocker.patch.object(device_mod, "omni", mock_environment["omni"])
-
-    keyboard = Se2Keyboard(config)
-
-    # Verify configuration was applied correctly
-    assert keyboard.v_x_sensitivity == 0.9
-    assert keyboard.v_y_sensitivity == 0.5
-    assert keyboard.omega_z_sensitivity == 1.2
-
-    # Test advance() returns expected type
-    result = keyboard.advance()
-    assert isinstance(result, torch.Tensor)
-    assert result.shape == (3,)  # (v_x, v_y, omega_z)
-
-
-def test_se3keyboard_constructors(mock_environment, mocker):
-    """Test constructor for Se3Keyboard."""
-    # Test config-based constructor
-    config = Se3KeyboardCfg(
-        pos_sensitivity=0.5,
-        rot_sensitivity=0.9,
-    )
-    device_mod = importlib.import_module("isaaclab.devices.keyboard.se3_keyboard")
-    mocker.patch.dict("sys.modules", {"carb": mock_environment["carb"], "omni": mock_environment["omni"]})
-    mocker.patch.object(device_mod, "carb", mock_environment["carb"])
-    mocker.patch.object(device_mod, "omni", mock_environment["omni"])
-
-    keyboard = Se3Keyboard(config)
-
-    # Verify configuration was applied correctly
-    assert keyboard.pos_sensitivity == 0.5
-    assert keyboard.rot_sensitivity == 0.9
-
-    # Test advance() returns expected type
-    result = keyboard.advance()
-    assert isinstance(result, torch.Tensor)
-    assert result.shape == (7,)  # (pos_x, pos_y, pos_z, rot_x, rot_y, rot_z, gripper)
-
-
-"""
 Test gamepad devices.
+
+Note: Keyboard constructor tests live in isaaclab_teleop/test/test_keyboard_constructors.py
+since Se2Keyboard/Se3Keyboard moved to isaaclab_teleop.keyboard.
 """
 
 
