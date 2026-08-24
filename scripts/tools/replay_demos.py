@@ -136,6 +136,7 @@ def compare_states(state_from_dataset, runtime_state, runtime_env_index) -> (boo
 
 def replay_episodes_loop(  # noqa: C901
     env,
+    teleop_interface,
     dataset_file_handler: HDF5DatasetFileHandler,
     episode_names: list[str],
     episode_count: int,
@@ -228,8 +229,10 @@ def replay_episodes_loop(  # noqa: C901
                     first_loop = False
                 else:
                     while is_paused:
+                        teleop_interface.advance()
                         env.sim.render()
                         continue
+                teleop_interface.advance()
                 env.step(actions)
 
                 if state_validation_enabled:
@@ -329,6 +332,7 @@ def main():
     episode_names = list(dataset_file_handler.get_episode_names())
     replayed_episode_count, recorded_episode_count, failed_demo_ids = replay_episodes_loop(
         env,
+        teleop_interface,
         dataset_file_handler,
         episode_names,
         episode_count,

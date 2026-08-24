@@ -31,12 +31,10 @@ simulation_app = app_launcher.app
 
 from collections.abc import Sequence
 
+import numpy as np
 import torch
 import warp as wp
 from isaaclab_physx.assets import SurfaceGripper, SurfaceGripperCfg
-
-import carb
-import omni
 
 import isaaclab.sim as sim_utils
 from isaaclab import cloner
@@ -55,6 +53,71 @@ from isaaclab.utils.configclass import configclass
 from isaaclab.utils.math import sample_uniform
 
 from isaaclab_assets.robots.pick_and_place import PICK_AND_PLACE_CFG
+
+# Evdev key codes (linux/input-event-codes.h) for the keys this demo reads.
+_EVDEV_Q_CODE, _EVDEV_E_CODE = 16, 18
+_EVDEV_W_CODE, _EVDEV_S_CODE = 17, 31
+_EVDEV_A_CODE, _EVDEV_D_CODE = 30, 32
+
+
+def _create_keyboard_bitmap_device(sim_device: str):
+    """Build an IsaacTeleop device whose ``action`` output is the raw 256-key evdev bitmap.
+
+    Used for demos that need continuous held/released key state (not the edge-triggered
+    start/stop/reset semantics of :class:`~isaaclab_teleop.Se2Keyboard` /
+    :class:`~isaaclab_teleop.Se3Keyboard`).
+    """
+    from isaaclab_teleop.isaac_teleop_cfg import CLOUDXR_STANDALONE_ENV, IsaacTeleopCfg
+    from isaaclab_teleop.isaac_teleop_device import create_isaac_teleop_device
+    from isaacteleop.plugins import plugin_search_path
+    from isaacteleop.teleop_session_manager import PluginConfig
+
+    def build_pipeline():
+        from isaacteleop.retargeting_engine.deviceio_source_nodes import KeyboardAllKeysType, KeyboardSource
+        from isaacteleop.retargeting_engine.interface import BaseRetargeter, OutputCombiner
+        from isaacteleop.retargeting_engine.interface.tensor_group_type import OptionalType, TensorGroupType
+        from isaacteleop.retargeting_engine.tensor_types import DLDataType, NDArrayType
+
+        class _BitmapPassthrough(BaseRetargeter):
+            """Converts the optional keyboard_all_keys bitmap into a definite one (zero-filled
+            while the plugin has not streamed yet), so it can be used directly as ``action``."""
+
+            def input_spec(self):
+                return {"keyboard_all_keys": OptionalType(KeyboardAllKeysType())}
+
+            def output_spec(self):
+                return {
+                    "bitmap": TensorGroupType(
+                        "bitmap", [NDArrayType("bits", shape=(256,), dtype=DLDataType.UINT, dtype_bits=8)]
+                    )
+                }
+
+            def _compute_fn(self, inputs, outputs, context):
+                del context
+                all_keys = inputs["keyboard_all_keys"]
+                outputs["bitmap"][0] = np.zeros(256, dtype=np.uint8) if all_keys.is_none else np.asarray(all_keys[0])
+
+        keyboard_source = KeyboardSource("keyboard")
+        passthrough = _BitmapPassthrough(name="bitmap_passthrough")
+        connected = passthrough.connect({"keyboard_all_keys": keyboard_source.output("keyboard_all_keys")})
+        return OutputCombiner({"action": connected.output("bitmap")})
+
+    teleop_cfg = IsaacTeleopCfg(
+        pipeline_builder=build_pipeline,
+        plugins=[PluginConfig(plugin_name="keyboard", plugin_root_id="keyboard", search_paths=[plugin_search_path()])],
+        sim_device=sim_device,
+        teleoperation_active_default=True,
+        app_name="IsaacLabPickAndPlaceDemo",
+    )
+    return create_isaac_teleop_device(teleop_cfg, cloudxr_env_file=CLOUDXR_STANDALONE_ENV, use_kit_xr_bridge=False)
+
+
+def _read_keyboard_bitmap(keyboard_device) -> np.ndarray | None:
+    """Advance the keyboard device and return its current 256-key bitmap, or ``None``."""
+    action = keyboard_device.advance()
+    if action is None:
+        return None
+    return np.asarray(action.cpu()) if hasattr(action, "cpu") else np.asarray(action)
 
 
 @configclass
@@ -165,25 +228,22 @@ class PickAndPlaceEnv(DirectRLEnv):
         self.set_up_keyboard()
 
     def set_up_keyboard(self):
-        """Sets up interface for keyboard input and registers the desired keys for control."""
-        # Acquire keyboard interface
-        self._input = carb.input.acquire_input_interface()
-        self._keyboard = omni.appwindow.get_default_app_window().get_keyboard()
-        self._sub_keyboard = self._input.subscribe_to_keyboard_events(self._keyboard, self._on_keyboard_event)
-        # Open / Close / Idle commands for gripper
+        """Builds the IsaacTeleop keyboard device used to control this demo."""
+        self._keyboard_device = _create_keyboard_bitmap_device(self.device)
+        self._keyboard_device.__enter__()
+
+        # Open / Close commands for gripper
         self._instant_key_controls = {
-            "Q": torch.tensor([0, 0, -1]),
-            "E": torch.tensor([0, 0, 1]),
-            "ZEROS": torch.tensor([0, 0, 0]),
+            _EVDEV_Q_CODE: torch.tensor([0, 0, -1]),
+            _EVDEV_E_CODE: torch.tensor([0, 0, 1]),
         }
-        # Move up or down
+        self._instant_zeros = torch.tensor([0, 0, 0])
+        # Move up or down (deliberately "permanent": holds the last commanded rate even after
+        # release, unlike the instant gripper/aim controls which reset when nothing is held).
         self._permanent_key_controls = {
-            "W": torch.tensor([-200.0], device=self.device),
-            "S": torch.tensor([100.0], device=self.device),
+            _EVDEV_W_CODE: torch.tensor([-200.0], device=self.device),
+            _EVDEV_S_CODE: torch.tensor([100.0], device=self.device),
         }
-        # Aiming manually is painful we can automate this.
-        self._auto_aim_cube = "A"
-        self._auto_aim_target = "D"
 
         # Task description:
         print("Keyboard set up!")
@@ -196,29 +256,37 @@ class PickAndPlaceEnv(DirectRLEnv):
         print("Press the 'W' or 'S' keys to move all gantries UP or DOWN respectively")
         print("Press 'Q' or 'E' to OPEN or CLOSE all grippers respectively")
 
-    def _on_keyboard_event(self, event):
-        """Checks for a keyboard event and assign the corresponding command control depending on key pressed."""
-        if event.type == carb.input.KeyboardEventType.KEY_PRESS:
-            # Logic on key press - apply to ALL environments
-            if event.input.name == self._auto_aim_target:
-                self.go_to_target[:] = True
-                self.go_to_cube[:] = False
-            if event.input.name == self._auto_aim_cube:
-                self.go_to_cube[:] = True
-                self.go_to_target[:] = False
-            if event.input.name in self._instant_key_controls:
-                self.go_to_cube[:] = False
-                self.go_to_target[:] = False
-                self.instant_controls[:] = self._instant_key_controls[event.input.name]
-            if event.input.name in self._permanent_key_controls:
-                self.go_to_cube[:] = False
-                self.go_to_target[:] = False
-                self.permanent_controls[:] = self._permanent_key_controls[event.input.name]
-        # On key release, all robots stop moving
-        elif event.type == carb.input.KeyboardEventType.KEY_RELEASE:
+    def poll_keyboard(self):
+        """Reads the current keyboard state and updates the aim / gripper / gantry commands.
+
+        Level-triggered every frame (checks which keys are currently held), matching the
+        held/released semantics of the original carb key-press/release callbacks.
+        """
+        bitmap = _read_keyboard_bitmap(self._keyboard_device)
+        if bitmap is None:
+            return
+
+        if bitmap[_EVDEV_A_CODE]:
+            self.go_to_cube[:] = True
+            self.go_to_target[:] = False
+        elif bitmap[_EVDEV_D_CODE]:
+            self.go_to_target[:] = True
+            self.go_to_cube[:] = False
+        else:
             self.go_to_cube[:] = False
             self.go_to_target[:] = False
-            self.instant_controls[:] = self._instant_key_controls["ZEROS"]
+
+        instant = self._instant_zeros
+        for code, value in self._instant_key_controls.items():
+            if bitmap[code]:
+                instant = value
+                break
+        self.instant_controls[:] = instant
+
+        for code, value in self._permanent_key_controls.items():
+            if bitmap[code]:
+                self.permanent_controls[:] = value
+                break
 
     def _setup_scene(self):
         self.pick_and_place = Articulation(self.cfg.robot_cfg)
@@ -245,6 +313,7 @@ class PickAndPlaceEnv(DirectRLEnv):
     def _pre_physics_step(self, actions: torch.Tensor) -> None:
         # Store the actions
         self.actions = actions.clone()
+        self.poll_keyboard()
 
     def _apply_action(self) -> None:
         # We use the keyboard outputs as an action.

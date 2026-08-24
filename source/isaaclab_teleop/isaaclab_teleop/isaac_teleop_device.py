@@ -278,6 +278,17 @@ class IsaacTeleopDevice:
         """
         return self._session_lifecycle.last_control_events
 
+    @property
+    def last_step_result(self) -> dict | None:
+        """Full pipeline output from the most recent :meth:`advance`, or ``None``.
+
+        Contains at least ``"action"`` and the right-controller entry, plus every
+        other output the configured ``pipeline_builder`` declares (see
+        :attr:`~isaaclab_teleop.IsaacTeleopCfg.pipeline_builder`).  ``None`` before
+        the first successful step or when the session has not started yet.
+        """
+        return self._session_lifecycle.last_step_result
+
     def add_callback(self, key: str, func: Callable) -> None:
         """Add a callback function for teleop commands.
 

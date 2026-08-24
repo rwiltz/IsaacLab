@@ -6,6 +6,7 @@
 import os
 from dataclasses import MISSING
 
+from isaaclab_teleop import IsaacTeleopCfg
 from isaaclab_teleop.keyboard import Se3KeyboardCfg
 
 from isaaclab.assets import AssetBaseCfg, RigidObjectCfg
@@ -277,6 +278,13 @@ class RmpFlowAgibotPlaceUprightMugEnvCfg(place_toy2box_rmp_rel_env_cfg.PlaceToy2
                     sim_device=self.sim.device,
                 ),
             }
+        )
+
+        # IsaacTeleop-based keyboard teleoperation pipeline
+        self.isaac_teleop = IsaacTeleopCfg(
+            pipeline_builder=place_toy2box_rmp_rel_env_cfg.build_agibot_place_keyboard_pipeline,
+            plugins=[place_toy2box_rmp_rel_env_cfg.agibot_keyboard_plugin_config()],
+            sim_device=self.sim.device,
         )
 
         # Set the simulation parameters

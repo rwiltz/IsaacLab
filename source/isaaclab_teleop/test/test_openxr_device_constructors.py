@@ -129,15 +129,14 @@ Test teleop device factory.
 """
 
 
-def test_create_teleop_device_basic(mock_environment, mocker):
+def test_create_teleop_device_basic(mocker):
     """Test creating devices using the teleop device factory."""
     keyboard_cfg = Se3KeyboardCfg(pos_sensitivity=0.8, rot_sensitivity=1.2)
     devices_cfg: dict[str, DeviceCfg] = {"test_keyboard": keyboard_cfg}
 
-    device_mod = importlib.import_module("isaaclab_teleop.keyboard.se3_keyboard")
-    mocker.patch.dict("sys.modules", {"carb": mock_environment["carb"], "omni": mock_environment["omni"]})
-    mocker.patch.object(device_mod, "carb", mock_environment["carb"])
-    mocker.patch.object(device_mod, "omni", mock_environment["omni"])
+    teleop_device_mock = mocker.MagicMock()
+    teleop_device_mock.__enter__.return_value = teleop_device_mock
+    mocker.patch("isaaclab_teleop.isaac_teleop_device.create_isaac_teleop_device", return_value=teleop_device_mock)
 
     device = create_teleop_device("test_keyboard", devices_cfg)
 

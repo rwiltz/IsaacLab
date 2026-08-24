@@ -4,6 +4,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 
+from isaaclab_teleop import IsaacTeleopCfg
 from isaaclab_teleop.keyboard import Se3KeyboardCfg
 
 from isaaclab.controllers.differential_ik_cfg import DifferentialIKControllerCfg
@@ -13,6 +14,60 @@ from isaaclab.envs.mdp.actions.actions_cfg import DifferentialInverseKinematicsA
 from isaaclab.utils.configclass import configclass
 
 from . import stack_joint_pos_env_cfg
+
+
+def _build_ur10_stack_keyboard_pipeline():
+    """Build an IsaacTeleop retargeting pipeline for keyboard-driven SE(3) delta-pose control.
+
+    Creates a KeyboardSource with a KeyboardToSe3RelRetargeter (delta pose) and a
+    KeyboardGripperRetargeter (suction toggle), flattened into a single action tensor via
+    TensorReorderer.
+
+    Returns:
+        OutputCombiner with a single "action" output containing the flattened
+        7D action tensor: [dx, dy, dz, drx, dry, drz, gripper].
+    """
+    from isaacteleop.retargeters import (
+        KeyboardGripperRetargeter,
+        KeyboardToSe3RelRetargeter,
+        KeyboardToSe3RelRetargeterConfig,
+        TensorReorderer,
+    )
+    from isaacteleop.retargeting_engine.deviceio_source_nodes import KeyboardSource
+    from isaacteleop.retargeting_engine.interface import OutputCombiner
+
+    keyboard_source = KeyboardSource(name="keyboard")
+
+    se3_cfg = KeyboardToSe3RelRetargeterConfig(pos_sensitivity=0.02, rot_sensitivity=0.05)
+    se3 = KeyboardToSe3RelRetargeter(se3_cfg, name="se3")
+    connected_se3 = se3.connect({"keyboard": keyboard_source.output("keyboard")})
+
+    gripper = KeyboardGripperRetargeter(name="gripper")
+    connected_gripper = gripper.connect({"keyboard": keyboard_source.output("keyboard")})
+
+    ee_delta_elements = ["dx", "dy", "dz", "drx", "dry", "drz"]
+    reorderer = TensorReorderer(
+        input_config={"ee_delta": ee_delta_elements, "gripper_command": ["gripper_value"]},
+        output_order=ee_delta_elements + ["gripper_value"],
+        name="action_reorderer",
+        input_types={"ee_delta": "array", "gripper_command": "scalar"},
+    )
+    connected_reorderer = reorderer.connect(
+        {
+            "ee_delta": connected_se3.output("ee_delta"),
+            "gripper_command": connected_gripper.output("gripper_command"),
+        }
+    )
+
+    return OutputCombiner({"action": connected_reorderer.output("output")})
+
+
+def _ur10_keyboard_plugin_config():
+    """IsaacTeleop plugin configuration for the bundled ``keyboard`` evdev plugin."""
+    from isaacteleop.plugins import plugin_search_path
+    from isaacteleop.teleop_session_manager import PluginConfig
+
+    return PluginConfig(plugin_name="keyboard", plugin_root_id="keyboard", search_paths=[plugin_search_path()])
 
 
 @configclass
@@ -48,6 +103,13 @@ class UR10LongSuctionCubeStackEnvCfg(stack_joint_pos_env_cfg.UR10LongSuctionCube
             }
         )
 
+        # IsaacTeleop-based keyboard teleoperation pipeline
+        self.isaac_teleop = IsaacTeleopCfg(
+            pipeline_builder=_build_ur10_stack_keyboard_pipeline,
+            plugins=[_ur10_keyboard_plugin_config()],
+            sim_device=self.sim.device,
+        )
+
 
 @configclass
 class UR10ShortSuctionCubeStackEnvCfg(stack_joint_pos_env_cfg.UR10ShortSuctionCubeStackEnvCfg):
@@ -78,4 +140,11 @@ class UR10ShortSuctionCubeStackEnvCfg(stack_joint_pos_env_cfg.UR10ShortSuctionCu
                     sim_device=self.sim.device,
                 ),
             }
+        )
+
+        # IsaacTeleop-based keyboard teleoperation pipeline
+        self.isaac_teleop = IsaacTeleopCfg(
+            pipeline_builder=_build_ur10_stack_keyboard_pipeline,
+            plugins=[_ur10_keyboard_plugin_config()],
+            sim_device=self.sim.device,
         )

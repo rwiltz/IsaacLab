@@ -613,10 +613,11 @@ class TeleopSessionLifecycle:
         # Stored on self so start() can reuse this ControllersSource's tracker for
         # the haptic sink, avoiding a second controller action-set attachment.
         self._button_controllers = ControllersSource("_button_controllers")
-        pipeline_outputs: dict[str, Any] = {
-            "action": user_pipeline.output("action"),
-            self._CONTROLLER_RIGHT_KEY: self._button_controllers.output(ControllersSource.RIGHT),
-        }
+        # Forward every output the user pipeline declares, not just "action", so
+        # devices with extra outputs (e.g. a raw key-state bitmap) can read them
+        # back via last_step_result. A no-op for pipelines that only return "action".
+        pipeline_outputs: dict[str, Any] = {name: user_pipeline.output(name) for name in user_pipeline.output_types()}
+        pipeline_outputs[self._CONTROLLER_RIGHT_KEY] = self._button_controllers.output(ControllersSource.RIGHT)
         if self._enable_debug_visualization:
             pipeline_outputs[self._CONTROLLER_LEFT_KEY] = self._button_controllers.output(ControllersSource.LEFT)
             self._chain_hand_debug_outputs(user_pipeline, pipeline_outputs)

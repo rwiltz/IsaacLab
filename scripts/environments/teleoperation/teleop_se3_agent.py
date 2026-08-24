@@ -114,6 +114,7 @@ if unrecognized_args:
 import logging
 
 import gymnasium as gym
+import numpy as np
 import torch
 from isaaclab_physx.renderers import IsaacRtxRendererGlobalSettingsCfg
 from isaaclab_physx.renderers.isaac_rtx_renderer_utils import (
@@ -219,21 +220,95 @@ def _make_haptic_io(env, teleop_interface, env_cfg, use_isaac_teleop: bool):
     return driver.update, driver.stop
 
 
-def _make_control_keyboard(teleop_interface, use_isaac_teleop: bool, has_window: bool):
+def _isaac_teleop_pipeline_uses_local_plugin(env_cfg) -> bool:
+    """Whether ``env_cfg.isaac_teleop`` is itself driven by a bundled local-device plugin.
+
+    A plugin-backed pipeline (keyboard, spacemouse, gamepad, ...) is already a local physical
+    input device with its own B/P/R start/pause/reset bindings; layering a second, standalone
+    plugin-backed IsaacTeleop session on top would try to launch a second CloudXR runtime
+    against the same fixed run directory and crash with "A CloudXR runtime is already serving
+    ...". This check is plugin-agnostic (not just "keyboard") since any bundled plugin implies
+    a local, non-XR-headset device driving its own session the same way.
+    """
+    isaac_teleop = getattr(env_cfg, "isaac_teleop", None)
+    if isaac_teleop is None:
+        return False
+    return bool(isaac_teleop.plugins)
+
+
+class _PrimaryDeviceControlKeyPoller:
+    """Fires ``teleop_interface``'s own START/STOP/RESET control events from physical B/P/R key
+    presses, by polling that *same* device's ``keyboard_all_keys`` bitmap output.
+
+    Used instead of a second keyboard-backed IsaacTeleopDevice when ``env_cfg.isaac_teleop`` is
+    itself plugin-driven (see :func:`_isaac_teleop_pipeline_uses_local_plugin`): a second
+    plugin-backed session would try to launch a second CloudXR runtime against the same fixed
+    run directory and crash with "A CloudXR runtime is already serving ...". Polling the primary
+    device's own bitmap gives physical start/pause/reset control without that collision.
+    """
+
+    _EVDEV_CODE_TO_KEY_NAME = {
+        16: "Q", 17: "W", 18: "E", 19: "R", 20: "T", 21: "Y", 22: "U", 23: "I", 24: "O", 25: "P",
+        30: "A", 31: "S", 32: "D", 33: "F", 34: "G", 35: "H", 36: "J", 37: "K", 38: "L",
+        44: "Z", 45: "X", 46: "C", 47: "V", 48: "B", 49: "N", 50: "M",
+    }  # fmt: skip
+    _START_KEY, _STOP_KEY, _RESET_KEY = "B", "P", "R"
+
+    def __init__(self, teleop_device) -> None:
+        self._teleop_device = teleop_device
+        self._prev_bitmap = None
+
+    def advance(self) -> None:
+        """Check for B/P/R rising edges since the last call and fire the matching control event."""
+        result = self._teleop_device.last_step_result
+        if result is None:
+            return
+        all_keys = result.get("keyboard_all_keys")
+        if all_keys is None or all_keys.is_none:
+            return
+        bitmap = np.asarray(all_keys[0])
+
+        prev = self._prev_bitmap
+        self._prev_bitmap = bitmap
+        if prev is None or prev.shape != bitmap.shape:
+            prev = np.zeros_like(bitmap)
+        rising_codes = np.nonzero((bitmap != 0) & (prev == 0))[0]
+
+        for code in rising_codes:
+            name = self._EVDEV_CODE_TO_KEY_NAME.get(int(code))
+            if name == self._START_KEY:
+                self._teleop_device.request_start()
+            elif name == self._STOP_KEY:
+                self._teleop_device.request_stop()
+            elif name == self._RESET_KEY:
+                self._teleop_device.reset(pause=True)
+
+
+def _make_control_keyboard(teleop_interface, use_isaac_teleop: bool, has_window: bool, env_cfg=None):
     """Create an optional keyboard for headset-free IsaacTeleop control.
 
-    Binds ``B`` / ``P`` / ``R`` to start-resume / pause / reset so a user can drive
-    the teleop state machine without an XR headset. Keys are captured through the app
-    window, so this returns ``None`` when there is no window or when IsaacTeleop is
-    not the active stack (a windowless run still auto-starts teleop). ``R`` is an operator
-    reset: :meth:`~isaaclab_teleop.IsaacTeleopDevice.reset` with ``pause=True`` injects a
-    single RESET pulse (the loop's control-event handler turns it into one environment
-    reset) and pauses the session (binding it straight to the reset callback would reset
-    the env twice). The returned device must be kept referenced by the caller so its carb
-    input subscription survives.
+    Binds ``B`` / ``P`` / ``R`` to start-resume / pause / reset so a user can drive the teleop
+    state machine without an XR headset. Returns ``None`` when there is no window or when
+    IsaacTeleop is not the active stack (a windowless run still auto-starts teleop).
+
+    When the active ``env_cfg.isaac_teleop`` pipeline is itself driven by a local plugin device
+    (e.g. the keyboard-driven Franka/UR10/Galbot/Agibot relative-mode configs), returns a
+    :class:`_PrimaryDeviceControlKeyPoller` that polls ``teleop_interface`` itself instead of
+    constructing a second keyboard-backed device -- a second plugin-backed IsaacTeleop session
+    would collide with the primary one's CloudXR runtime.
+
+    The caller must call ``.advance()`` on the returned object every frame (it is never the
+    primary device advanced for its action output) and keep it referenced for the app's
+    lifetime. ``R`` is an operator reset: :meth:`~isaaclab_teleop.IsaacTeleopDevice.reset` with
+    ``pause=True`` injects a single RESET pulse (the loop's control-event handler turns it into
+    one environment reset) and pauses the session (binding it straight to the reset callback
+    would reset the env twice).
     """
     if not use_isaac_teleop or not has_window:
         return None
+    if _isaac_teleop_pipeline_uses_local_plugin(env_cfg):
+        print("IsaacTeleop control keys: [B] start/resume  [P] pause  [R] reset")
+        return _PrimaryDeviceControlKeyPoller(teleop_interface)
     try:
         keyboard = Se3Keyboard(Se3KeyboardCfg(pos_sensitivity=0.0, rot_sensitivity=0.0))
         keyboard.add_callback("B", teleop_interface.request_start)
@@ -458,10 +533,9 @@ def main() -> None:  # noqa: C901
     # ``haptic_feedback`` config and the device can render it (IsaacTeleop).
     haptic_update, haptic_stop = _make_haptic_io(env, teleop_interface, env_cfg, use_isaac_teleop)
 
-    # Optional keyboard for headset-free IsaacTeleop control. Kept in a local so its
-    # carb input subscription is not garbage-collected; a headless run auto-starts
-    # (in ``run_loop``) without it.
-    control_keyboard = _make_control_keyboard(teleop_interface, use_isaac_teleop, app_launcher.has_window)  # noqa: F841
+    # Optional keyboard for headset-free IsaacTeleop control. Advanced every frame in
+    # ``run_loop`` below so its own B/P/R polling runs -- it is never the primary device.
+    control_keyboard = _make_control_keyboard(teleop_interface, use_isaac_teleop, app_launcher.has_window, env_cfg)
 
     def run_loop():
         """Inner function to run the teleop loop with access to nonlocal variables."""
@@ -487,6 +561,8 @@ def main() -> None:  # noqa: C901
                 with torch.inference_mode():
                     # get device command
                     action = teleop_interface.advance()
+                    if control_keyboard is not None:
+                        control_keyboard.advance()
 
                     if use_isaac_teleop:
                         ctrl = poll_control_events(teleop_interface)

@@ -84,6 +84,7 @@ is_paused = False
 current_action_index = 0
 marked_subtask_action_indices = []
 skip_episode = False
+keyboard_interface = None
 
 
 def play_cb():
@@ -169,7 +170,7 @@ class MimicRecorderManagerCfg(ActionStateRecorderManagerCfg):
 
 def main():
     """Add Isaac Lab Mimic annotations to the given demo dataset file."""
-    global is_paused, current_action_index, marked_subtask_action_indices
+    global is_paused, current_action_index, marked_subtask_action_indices, keyboard_interface
 
     # Load input dataset to be annotated
     if not os.path.exists(args_cli.input_file):
@@ -349,7 +350,7 @@ def replay_episode(
         True if the episode was successfully replayed and the success condition was met (if provided),
         False otherwise.
     """
-    global current_action_index, skip_episode, is_paused
+    global current_action_index, skip_episode, is_paused, keyboard_interface
     # read initial state and actions from the loaded episode
     initial_state = episode.data["initial_state"]
     actions = episode.data["actions"]
@@ -363,10 +364,12 @@ def replay_episode(
             first_action = False
         else:
             while is_paused or skip_episode:
+                keyboard_interface.advance()
                 env.sim.render()
                 if skip_episode:
                     return False
                 continue
+        keyboard_interface.advance()
         action_tensor = torch.Tensor(action).reshape([1, action.shape[0]])
         env.step(torch.Tensor(action_tensor))
     if success_term is not None:

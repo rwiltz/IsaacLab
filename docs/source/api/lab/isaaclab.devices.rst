@@ -11,8 +11,6 @@
     RetargeterBase
     Se2Gamepad
     Se3Gamepad
-    Se2Keyboard
-    Se3Keyboard
     Se2SpaceMouse
     Se3SpaceMouse
     HaplyDevice
@@ -51,21 +49,6 @@ Game Pad
     :noindex:
 
 .. autoclass:: Se3Gamepad
-    :members:
-    :inherited-members:
-    :show-inheritance:
-    :noindex:
-
-Keyboard
---------
-
-.. autoclass:: Se2Keyboard
-    :members:
-    :inherited-members:
-    :show-inheritance:
-    :noindex:
-
-.. autoclass:: Se3Keyboard
     :members:
     :inherited-members:
     :show-inheritance:
@@ -155,10 +138,8 @@ The following classes are part of the public :mod:`isaaclab.devices` API.
    HaplyDeviceCfg
    RetargeterCfg
    Se2GamepadCfg
-   Se2KeyboardCfg
    Se2SpaceMouseCfg
    Se3GamepadCfg
-   Se3KeyboardCfg
    Se3SpaceMouseCfg
 
 .. autoclass:: DeviceCfg
@@ -176,16 +157,10 @@ The following classes are part of the public :mod:`isaaclab.devices` API.
 .. autoclass:: Se2GamepadCfg
    :show-inheritance:
 
-.. autoclass:: Se2KeyboardCfg
-   :show-inheritance:
-
 .. autoclass:: Se2SpaceMouseCfg
    :show-inheritance:
 
 .. autoclass:: Se3GamepadCfg
-   :show-inheritance:
-
-.. autoclass:: Se3KeyboardCfg
    :show-inheritance:
 
 .. autoclass:: Se3SpaceMouseCfg

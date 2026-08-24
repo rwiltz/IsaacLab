@@ -46,10 +46,10 @@ args_cli = parser.parse_args()
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
 
+import numpy as np
 import torch
 from rsl_rl.runners import OnPolicyRunner
 
-import carb
 import omni
 from omni.kit.viewport.utility import get_viewport_from_window_name
 from omni.kit.viewport.utility.camera_state import ViewportCameraState
@@ -69,6 +69,71 @@ from isaaclab_tasks.utils import resolve_task_config
 
 TASK = "Isaac-Velocity-Rough-H1"
 RL_LIBRARY = "rsl_rl"
+
+# Evdev key codes (linux/input-event-codes.h) for the keys this demo reads.
+_EVDEV_ARROW_KEY_CODES = {"UP": 103, "DOWN": 108, "LEFT": 105, "RIGHT": 106}
+_EVDEV_ESCAPE_CODE = 1
+_EVDEV_C_CODE = 46
+
+
+def _create_keyboard_bitmap_device(sim_device: str):
+    """Build an IsaacTeleop device whose ``action`` output is the raw 256-key evdev bitmap.
+
+    Used for demos that need continuous held/released key state (not the edge-triggered
+    start/stop/reset semantics of :class:`~isaaclab_teleop.Se2Keyboard` /
+    :class:`~isaaclab_teleop.Se3Keyboard`).
+    """
+    from isaaclab_teleop.isaac_teleop_cfg import CLOUDXR_STANDALONE_ENV, IsaacTeleopCfg
+    from isaaclab_teleop.isaac_teleop_device import create_isaac_teleop_device
+    from isaacteleop.plugins import plugin_search_path
+    from isaacteleop.teleop_session_manager import PluginConfig
+
+    def build_pipeline():
+        from isaacteleop.retargeting_engine.deviceio_source_nodes import KeyboardAllKeysType, KeyboardSource
+        from isaacteleop.retargeting_engine.interface import BaseRetargeter, OutputCombiner
+        from isaacteleop.retargeting_engine.interface.tensor_group_type import OptionalType, TensorGroupType
+        from isaacteleop.retargeting_engine.tensor_types import DLDataType, NDArrayType
+
+        class _BitmapPassthrough(BaseRetargeter):
+            """Converts the optional keyboard_all_keys bitmap into a definite one (zero-filled
+            while the plugin has not streamed yet), so it can be used directly as ``action``."""
+
+            def input_spec(self):
+                return {"keyboard_all_keys": OptionalType(KeyboardAllKeysType())}
+
+            def output_spec(self):
+                return {
+                    "bitmap": TensorGroupType(
+                        "bitmap", [NDArrayType("bits", shape=(256,), dtype=DLDataType.UINT, dtype_bits=8)]
+                    )
+                }
+
+            def _compute_fn(self, inputs, outputs, context):
+                del context
+                all_keys = inputs["keyboard_all_keys"]
+                outputs["bitmap"][0] = np.zeros(256, dtype=np.uint8) if all_keys.is_none else np.asarray(all_keys[0])
+
+        keyboard_source = KeyboardSource("keyboard")
+        passthrough = _BitmapPassthrough(name="bitmap_passthrough")
+        connected = passthrough.connect({"keyboard_all_keys": keyboard_source.output("keyboard_all_keys")})
+        return OutputCombiner({"action": connected.output("bitmap")})
+
+    teleop_cfg = IsaacTeleopCfg(
+        pipeline_builder=build_pipeline,
+        plugins=[PluginConfig(plugin_name="keyboard", plugin_root_id="keyboard", search_paths=[plugin_search_path()])],
+        sim_device=sim_device,
+        teleoperation_active_default=True,
+        app_name="IsaacLabH1LocomotionDemo",
+    )
+    return create_isaac_teleop_device(teleop_cfg, cloudxr_env_file=CLOUDXR_STANDALONE_ENV, use_kit_xr_bridge=False)
+
+
+def _read_keyboard_bitmap(keyboard_device) -> np.ndarray | None:
+    """Advance the keyboard device and return its current 256-key bitmap, or ``None``."""
+    action = keyboard_device.advance()
+    if action is None:
+        return None
+    return np.asarray(action.cpu()) if hasattr(action, "cpu") else np.asarray(action)
 
 
 class H1RoughDemo:
@@ -138,10 +203,11 @@ class H1RoughDemo:
         self.viewport.set_active_camera(self.perspective_path)
 
     def set_up_keyboard(self):
-        """Sets up interface for keyboard input and registers the desired keys for control."""
-        self._input = carb.input.acquire_input_interface()
-        self._keyboard = omni.appwindow.get_default_app_window().get_keyboard()
-        self._sub_keyboard = self._input.subscribe_to_keyboard_events(self._keyboard, self._on_keyboard_event)
+        """Builds the IsaacTeleop keyboard device and registers the desired keys for control."""
+        self._keyboard_device = _create_keyboard_bitmap_device(self.device)
+        self._keyboard_device.__enter__()
+        self._prev_bitmap: np.ndarray | None = None
+
         T = 1
         R = 0.5
         self._key_to_control = {
@@ -149,30 +215,42 @@ class H1RoughDemo:
             "DOWN": torch.tensor([0.0, 0.0, 0.0, 0.0], device=self.device),
             "LEFT": torch.tensor([T, 0.0, 0.0, -R], device=self.device),
             "RIGHT": torch.tensor([T, 0.0, 0.0, R], device=self.device),
-            "ZEROS": torch.tensor([0.0, 0.0, 0.0, 0.0], device=self.device),
         }
+        self._zeros = torch.tensor([0.0, 0.0, 0.0, 0.0], device=self.device)
 
-    def _on_keyboard_event(self, event):
-        """Checks for a keyboard event and assign the corresponding command control depending on key pressed."""
-        if event.type == carb.input.KeyboardEventType.KEY_PRESS:
-            # Arrow keys map to pre-defined command vectors to control navigation of robot
-            if event.input.name in self._key_to_control:
-                if self._selected_id is not None:
-                    self.commands[self._selected_id] = self._key_to_control[event.input.name]
-            # Escape key exits out of the current selected robot view
-            elif event.input.name == "ESCAPE":
-                self._prim_selection.clear_selected_prim_paths()
-            # C key swaps between third-person and perspective views
-            elif event.input.name == "C":
-                if self._selected_id is not None:
-                    if self.viewport.get_active_camera() == self.camera_path:
-                        self.viewport.set_active_camera(self.perspective_path)
-                    else:
-                        self.viewport.set_active_camera(self.camera_path)
-        # On key release, the robot stops moving
-        elif event.type == carb.input.KeyboardEventType.KEY_RELEASE:
-            if self._selected_id is not None:
-                self.commands[self._selected_id] = self._key_to_control["ZEROS"]
+    def poll_keyboard(self):
+        """Reads the current keyboard state and updates the robot command / camera view.
+
+        Movement keys (UP/DOWN/LEFT/RIGHT) and ESCAPE are level-triggered (checked every
+        frame, matching the held/released semantics of the original carb key-press/release
+        callbacks). C (camera toggle) fires once per press (rising edge) so holding it does
+        not repeatedly flip the view.
+        """
+        bitmap = _read_keyboard_bitmap(self._keyboard_device)
+        if bitmap is None:
+            return
+        prev = self._prev_bitmap
+        self._prev_bitmap = bitmap
+        if prev is None or prev.shape != bitmap.shape:
+            prev = np.zeros_like(bitmap)
+
+        if self._selected_id is not None:
+            command = self._zeros
+            for name, code in _EVDEV_ARROW_KEY_CODES.items():
+                if bitmap[code]:
+                    command = self._key_to_control[name]
+                    break
+            self.commands[self._selected_id] = command
+
+        if bitmap[_EVDEV_ESCAPE_CODE]:
+            self._prim_selection.clear_selected_prim_paths()
+
+        c_rising = bitmap[_EVDEV_C_CODE] and not prev[_EVDEV_C_CODE]
+        if c_rising and self._selected_id is not None:
+            if self.viewport.get_active_camera() == self.camera_path:
+                self.viewport.set_active_camera(self.perspective_path)
+            else:
+                self.viewport.set_active_camera(self.camera_path)
 
     def update_selected_object(self):
         """Determines which robot is currently selected and whether it is a valid H1 robot.
@@ -228,6 +306,7 @@ def main():
     while simulation_app.is_running():
         # check for selected robots
         demo_h1.update_selected_object()
+        demo_h1.poll_keyboard()
         with torch.inference_mode():
             action = demo_h1.policy(obs)
             obs, _, _, _ = demo_h1.env.step(action)

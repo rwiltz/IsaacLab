@@ -8,6 +8,7 @@ import os
 
 from isaaclab_physx.physics import PhysxCfg
 from isaaclab_physx.renderers import IsaacRtxRendererCfg
+from isaaclab_teleop import IsaacTeleopCfg
 from isaaclab_teleop.keyboard import Se3KeyboardCfg
 
 import isaaclab.sim as sim_utils
@@ -34,6 +35,60 @@ from isaaclab.controllers.config.rmp_flow import (  # isort: skip
     GALBOT_RIGHT_ARM_RMPFLOW_CFG,
 )
 from isaaclab.markers.config import FRAME_MARKER_CFG  # isort: skip
+
+
+def _build_galbot_stack_keyboard_pipeline():
+    """Build an IsaacTeleop retargeting pipeline for keyboard-driven SE(3) delta-pose control.
+
+    Creates a KeyboardSource with a KeyboardToSe3RelRetargeter (delta pose) and a
+    KeyboardGripperRetargeter (gripper toggle), flattened into a single action tensor via
+    TensorReorderer. Shared by both Galbot arm variants below.
+
+    Returns:
+        OutputCombiner with a single "action" output containing the flattened
+        7D action tensor: [dx, dy, dz, drx, dry, drz, gripper].
+    """
+    from isaacteleop.retargeters import (
+        KeyboardGripperRetargeter,
+        KeyboardToSe3RelRetargeter,
+        KeyboardToSe3RelRetargeterConfig,
+        TensorReorderer,
+    )
+    from isaacteleop.retargeting_engine.deviceio_source_nodes import KeyboardSource
+    from isaacteleop.retargeting_engine.interface import OutputCombiner
+
+    keyboard_source = KeyboardSource(name="keyboard")
+
+    se3_cfg = KeyboardToSe3RelRetargeterConfig(pos_sensitivity=0.05, rot_sensitivity=0.05)
+    se3 = KeyboardToSe3RelRetargeter(se3_cfg, name="se3")
+    connected_se3 = se3.connect({"keyboard": keyboard_source.output("keyboard")})
+
+    gripper = KeyboardGripperRetargeter(name="gripper")
+    connected_gripper = gripper.connect({"keyboard": keyboard_source.output("keyboard")})
+
+    ee_delta_elements = ["dx", "dy", "dz", "drx", "dry", "drz"]
+    reorderer = TensorReorderer(
+        input_config={"ee_delta": ee_delta_elements, "gripper_command": ["gripper_value"]},
+        output_order=ee_delta_elements + ["gripper_value"],
+        name="action_reorderer",
+        input_types={"ee_delta": "array", "gripper_command": "scalar"},
+    )
+    connected_reorderer = reorderer.connect(
+        {
+            "ee_delta": connected_se3.output("ee_delta"),
+            "gripper_command": connected_gripper.output("gripper_command"),
+        }
+    )
+
+    return OutputCombiner({"action": connected_reorderer.output("output")})
+
+
+def _galbot_keyboard_plugin_config():
+    """IsaacTeleop plugin configuration for the bundled ``keyboard`` evdev plugin."""
+    from isaacteleop.plugins import plugin_search_path
+    from isaacteleop.teleop_session_manager import PluginConfig
+
+    return PluginConfig(plugin_name="keyboard", plugin_root_id="keyboard", search_paths=[plugin_search_path()])
 
 
 ##
@@ -63,10 +118,9 @@ class RmpFlowGalbotLeftArmCubeStackEnvCfg(stack_joint_pos_env_cfg.GalbotLeftArmC
             use_relative_mode=self.use_relative_mode,
         )
 
-        # Relative mode uses legacy teleop (keyboard/spacemouse) instead of XR;
+        # Relative mode uses keyboard/spacemouse teleop instead of XR;
         # absolute mode keeps the inherited XR isaac_teleop pipeline.
         if self.use_relative_mode:
-            self.isaac_teleop = None
             self.teleop_devices = DevicesCfg(
                 devices={
                     "keyboard": Se3KeyboardCfg(
@@ -78,6 +132,11 @@ class RmpFlowGalbotLeftArmCubeStackEnvCfg(stack_joint_pos_env_cfg.GalbotLeftArmC
                         rot_sensitivity=0.05,
                     ),
                 }
+            )
+            self.isaac_teleop = IsaacTeleopCfg(
+                pipeline_builder=_build_galbot_stack_keyboard_pipeline,
+                plugins=[_galbot_keyboard_plugin_config()],
+                sim_device=self.sim.device,
             )
 
         # Set the simulation parameters
@@ -112,10 +171,9 @@ class RmpFlowGalbotRightArmCubeStackEnvCfg(stack_joint_pos_env_cfg.GalbotRightAr
             use_relative_mode=self.use_relative_mode,
         )
 
-        # Relative mode uses legacy teleop (keyboard/spacemouse) instead of XR;
+        # Relative mode uses keyboard/spacemouse teleop instead of XR;
         # absolute mode keeps the inherited XR isaac_teleop pipeline.
         if self.use_relative_mode:
-            self.isaac_teleop = None
             self.teleop_devices = DevicesCfg(
                 devices={
                     "keyboard": Se3KeyboardCfg(
@@ -127,6 +185,11 @@ class RmpFlowGalbotRightArmCubeStackEnvCfg(stack_joint_pos_env_cfg.GalbotRightAr
                         rot_sensitivity=0.05,
                     ),
                 }
+            )
+            self.isaac_teleop = IsaacTeleopCfg(
+                pipeline_builder=_build_galbot_stack_keyboard_pipeline,
+                plugins=[_galbot_keyboard_plugin_config()],
+                sim_device=self.sim.device,
             )
 
         # Set the simulation parameters
