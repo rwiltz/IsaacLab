@@ -9,11 +9,8 @@ import os
 from isaaclab_physx.physics import PhysxCfg
 from isaaclab_physx.renderers import IsaacRtxRendererCfg
 from isaaclab_teleop import IsaacTeleopCfg
-from isaaclab_teleop.keyboard import Se3KeyboardCfg
-from isaaclab_teleop.spacemouse import Se3SpaceMouseCfg
 
 import isaaclab.sim as sim_utils
-from isaaclab.devices.device_base import DevicesCfg
 from isaaclab.envs.mdp.actions.rmpflow_actions_cfg import RMPFlowActionCfg
 from isaaclab.sensors import CameraCfg, FrameTransformerCfg
 from isaaclab.sensors.frame_transformer.frame_transformer_cfg import OffsetCfg
@@ -121,18 +118,6 @@ class RmpFlowGalbotLeftArmCubeStackEnvCfg(stack_joint_pos_env_cfg.GalbotLeftArmC
         # Relative mode uses keyboard/spacemouse teleop instead of XR;
         # absolute mode keeps the inherited XR isaac_teleop pipeline.
         if self.use_relative_mode:
-            self.teleop_devices = DevicesCfg(
-                devices={
-                    "keyboard": Se3KeyboardCfg(
-                        pos_sensitivity=0.05,
-                        rot_sensitivity=0.05,
-                    ),
-                    "spacemouse": Se3SpaceMouseCfg(
-                        pos_sensitivity=0.05,
-                        rot_sensitivity=0.05,
-                    ),
-                }
-            )
             self.isaac_teleop = IsaacTeleopCfg(
                 pipeline_builder=_build_galbot_stack_keyboard_pipeline,
                 plugins=[_galbot_keyboard_plugin_config()],
@@ -174,18 +159,6 @@ class RmpFlowGalbotRightArmCubeStackEnvCfg(stack_joint_pos_env_cfg.GalbotRightAr
         # Relative mode uses keyboard/spacemouse teleop instead of XR;
         # absolute mode keeps the inherited XR isaac_teleop pipeline.
         if self.use_relative_mode:
-            self.teleop_devices = DevicesCfg(
-                devices={
-                    "keyboard": Se3KeyboardCfg(
-                        pos_sensitivity=0.05,
-                        rot_sensitivity=0.05,
-                    ),
-                    "spacemouse": Se3SpaceMouseCfg(
-                        pos_sensitivity=0.05,
-                        rot_sensitivity=0.05,
-                    ),
-                }
-            )
             self.isaac_teleop = IsaacTeleopCfg(
                 pipeline_builder=_build_galbot_stack_keyboard_pipeline,
                 plugins=[_galbot_keyboard_plugin_config()],

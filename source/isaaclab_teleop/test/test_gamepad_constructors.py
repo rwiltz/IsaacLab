@@ -3,106 +3,62 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-# pyright: reportPrivateUsage=none
+"""Tests for the gamepad :class:`~isaaclab_teleop.IsaacTeleopCfg` builder functions.
 
-"""Tests for Se2Gamepad/Se3Gamepad control logic (add_callback routing, advance() fallback).
-
-These exercise the pure logic without constructing a real IsaacTeleopDevice, which requires
-the OpenXR/CloudXR runtime -- matching the pattern established in test_keyboard_constructors.py.
+Gamepad has no physical button wired to session start/stop/reset (those come from the
+teleop session's control channel or an auxiliary control device), so unlike keyboard and
+spacemouse there is no gamepad-specific control poller to test. These tests just verify the
+builder functions wire up a correctly-shaped, gamepad-plugin-backed IsaacTeleopCfg.
 """
 
 from __future__ import annotations
 
-import pytest
-import torch
-from isaaclab_teleop.gamepad.se2_gamepad import Se2Gamepad
-from isaaclab_teleop.gamepad.se3_gamepad import Se3Gamepad
+import sys
+import types
+
+# ``isaacteleop.plugins`` resolves an on-disk plugin search directory, which is irrelevant to
+# these pure config-shape assertions and may not be present in every install of isaacteleop
+# (e.g. minimal/CI builds). Stub it once at import time instead of per-test, so repeated
+# construction of gamepad IsaacTeleopCfg objects below does not repeatedly patch and unpatch
+# ``sys.modules``, which can trip unrelated import-machinery issues in third-party packages.
+if "isaacteleop.plugins" not in sys.modules:
+    _fake_plugins = types.ModuleType("isaacteleop.plugins")
+    _fake_plugins.plugin_search_path = lambda: "/dummy/plugin/path"
+    sys.modules["isaacteleop.plugins"] = _fake_plugins
+
+from isaaclab_teleop.gamepad.se2_gamepad import se2_gamepad_teleop_cfg  # noqa: E402
+from isaaclab_teleop.gamepad.se3_gamepad import se3_gamepad_teleop_cfg  # noqa: E402
 
 
-def _make_bare_se3_gamepad(mocker, gripper_term: bool = True) -> Se3Gamepad:
-    """Construct a Se3Gamepad without running __init__ (which needs a live IsaacTeleop session)."""
-    gamepad = object.__new__(Se3Gamepad)
-    gamepad.pos_sensitivity = 0.4
-    gamepad.rot_sensitivity = 0.8
-    gamepad.dead_zone = 0.01
-    gamepad.gripper_term = gripper_term
-    gamepad._sim_device = "cpu"
-    gamepad._additional_callbacks = {}
-    gamepad._teleop_device = mocker.MagicMock()
-    gamepad._teleop_device.last_step_result = None
-    return gamepad
+class TestSe3GamepadTeleopCfg:
+    def test_defaults(self):
+        cfg = se3_gamepad_teleop_cfg()
+
+        assert cfg.sim_device == "cpu"
+        assert cfg.teleoperation_active_default is True
+        assert cfg.app_name == "IsaacLabGamepadSe3"
+        assert len(cfg.plugins) == 1
+        assert cfg.plugins[0].plugin_name == "gamepad"
+        assert callable(cfg.pipeline_builder)
+
+    def test_custom_sim_device(self):
+        cfg = se3_gamepad_teleop_cfg(sim_device="cuda:0")
+
+        assert cfg.sim_device == "cuda:0"
 
 
-def _make_bare_se2_gamepad(mocker) -> Se2Gamepad:
-    gamepad = object.__new__(Se2Gamepad)
-    gamepad.v_x_sensitivity = 1.0
-    gamepad.v_y_sensitivity = 1.0
-    gamepad.omega_z_sensitivity = 1.0
-    gamepad.dead_zone = 0.01
-    gamepad._sim_device = "cpu"
-    gamepad._additional_callbacks = {}
-    gamepad._teleop_device = mocker.MagicMock()
-    gamepad._teleop_device.last_step_result = None
-    return gamepad
+class TestSe2GamepadTeleopCfg:
+    def test_defaults(self):
+        cfg = se2_gamepad_teleop_cfg()
 
+        assert cfg.sim_device == "cpu"
+        assert cfg.teleoperation_active_default is True
+        assert cfg.app_name == "IsaacLabGamepadSe2"
+        assert len(cfg.plugins) == 1
+        assert cfg.plugins[0].plugin_name == "gamepad"
+        assert callable(cfg.pipeline_builder)
 
-# ---------------------------------------------------------------------------
-# add_callback routing: START/STOP/RESET/R -> teleop device, else stored locally
-# ---------------------------------------------------------------------------
+    def test_custom_sim_device(self):
+        cfg = se2_gamepad_teleop_cfg(sim_device="cuda:0")
 
-
-class TestAddCallbackRouting:
-    @pytest.mark.parametrize("key", ["START", "STOP", "RESET", "R"])
-    def test_control_keys_delegate_to_teleop_device(self, mocker, key):
-        gamepad = _make_bare_se3_gamepad(mocker)
-        callback = mocker.MagicMock()
-
-        gamepad.add_callback(key, callback)
-
-        gamepad._teleop_device.add_callback.assert_called_once_with(key, callback)
-        assert key not in gamepad._additional_callbacks
-
-    def test_arbitrary_key_stored_locally(self, mocker):
-        gamepad = _make_bare_se3_gamepad(mocker)
-        callback = mocker.MagicMock()
-
-        gamepad.add_callback("X", callback)
-
-        assert gamepad._additional_callbacks["X"] is callback
-        gamepad._teleop_device.add_callback.assert_not_called()
-
-
-# ---------------------------------------------------------------------------
-# advance() fallback when the IsaacTeleop session has not produced a step yet
-# ---------------------------------------------------------------------------
-
-
-class TestAdvanceDefaults:
-    def test_se3_default_action_with_gripper_open(self, mocker):
-        gamepad = _make_bare_se3_gamepad(mocker, gripper_term=True)
-        gamepad._teleop_device.advance.return_value = None
-
-        action = gamepad.advance()
-
-        assert isinstance(action, torch.Tensor)
-        assert action.shape == (7,)
-        assert torch.allclose(action[:6], torch.zeros(6))
-        assert action[6].item() == pytest.approx(1.0)  # gripper open by default
-
-    def test_se3_default_action_without_gripper(self, mocker):
-        gamepad = _make_bare_se3_gamepad(mocker, gripper_term=False)
-        gamepad._teleop_device.advance.return_value = None
-
-        action = gamepad.advance()
-
-        assert action.shape == (6,)
-        assert torch.allclose(action, torch.zeros(6))
-
-    def test_se2_default_action_is_zero(self, mocker):
-        gamepad = _make_bare_se2_gamepad(mocker)
-        gamepad._teleop_device.advance.return_value = None
-
-        action = gamepad.advance()
-
-        assert action.shape == (3,)
-        assert torch.allclose(action, torch.zeros(3))
+        assert cfg.sim_device == "cuda:0"

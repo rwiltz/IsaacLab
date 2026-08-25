@@ -11,18 +11,8 @@ isaaclab_teleop
 
     IsaacTeleopCfg
     IsaacTeleopDevice
-    Se2Gamepad
-    Se2GamepadCfg
-    Se2Keyboard
-    Se2KeyboardCfg
-    Se2SpaceMouse
-    Se2SpaceMouseCfg
-    Se3Gamepad
-    Se3GamepadCfg
-    Se3Keyboard
-    Se3KeyboardCfg
-    Se3SpaceMouse
-    Se3SpaceMouseCfg
+    KeyboardControlPoller
+    SpaceMouseResetPoller
     XrCameraFeedCfg
     XrCameraFeedLayoutCfg
     XrCameraFeedSession
@@ -42,6 +32,12 @@ isaaclab_teleop
     create_isaac_teleop_device
     create_haptic_feedback_driver
     remove_camera_configs
+    se2_gamepad_teleop_cfg
+    se2_keyboard_teleop_cfg
+    se2_spacemouse_teleop_cfg
+    se3_gamepad_teleop_cfg
+    se3_keyboard_teleop_cfg
+    se3_spacemouse_teleop_cfg
 
 Configuration
 -------------
@@ -79,52 +75,28 @@ Device
 Keyboard
 --------
 
-.. autoclass:: Se2Keyboard
-    :members:
-    :show-inheritance:
+.. autofunction:: se2_keyboard_teleop_cfg
 
-.. autoclass:: Se2KeyboardCfg
-    :members:
+.. autofunction:: se3_keyboard_teleop_cfg
 
-.. autoclass:: Se3Keyboard
-    :members:
-    :show-inheritance:
-
-.. autoclass:: Se3KeyboardCfg
+.. autoclass:: KeyboardControlPoller
     :members:
 
 Gamepad
 -------
 
-.. autoclass:: Se2Gamepad
-    :members:
-    :show-inheritance:
+.. autofunction:: se2_gamepad_teleop_cfg
 
-.. autoclass:: Se2GamepadCfg
-    :members:
-
-.. autoclass:: Se3Gamepad
-    :members:
-    :show-inheritance:
-
-.. autoclass:: Se3GamepadCfg
-    :members:
+.. autofunction:: se3_gamepad_teleop_cfg
 
 SpaceMouse
 ----------
 
-.. autoclass:: Se2SpaceMouse
-    :members:
-    :show-inheritance:
+.. autofunction:: se2_spacemouse_teleop_cfg
 
-.. autoclass:: Se2SpaceMouseCfg
-    :members:
+.. autofunction:: se3_spacemouse_teleop_cfg
 
-.. autoclass:: Se3SpaceMouse
-    :members:
-    :show-inheritance:
-
-.. autoclass:: Se3SpaceMouseCfg
+.. autoclass:: SpaceMouseResetPoller
     :members:
 
 Haptic Feedback

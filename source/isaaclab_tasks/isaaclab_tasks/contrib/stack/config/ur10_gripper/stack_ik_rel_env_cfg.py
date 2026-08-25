@@ -5,11 +5,8 @@
 
 
 from isaaclab_teleop import IsaacTeleopCfg
-from isaaclab_teleop.keyboard import Se3KeyboardCfg
-from isaaclab_teleop.spacemouse import Se3SpaceMouseCfg
 
 from isaaclab.controllers.differential_ik_cfg import DifferentialIKControllerCfg
-from isaaclab.devices.device_base import DevicesCfg
 from isaaclab.envs.mdp.actions.actions_cfg import DifferentialInverseKinematicsActionCfg
 from isaaclab.utils.configclass import configclass
 
@@ -88,21 +85,6 @@ class UR10LongSuctionCubeStackEnvCfg(stack_joint_pos_env_cfg.UR10LongSuctionCube
             body_offset=DifferentialInverseKinematicsActionCfg.OffsetCfg(pos=[0.0, 0.0, -0.22]),
         )
 
-        self.teleop_devices = DevicesCfg(
-            devices={
-                "keyboard": Se3KeyboardCfg(
-                    pos_sensitivity=0.02,
-                    rot_sensitivity=0.05,
-                    sim_device=self.sim.device,
-                ),
-                "spacemouse": Se3SpaceMouseCfg(
-                    pos_sensitivity=0.05,
-                    rot_sensitivity=0.05,
-                    sim_device=self.sim.device,
-                ),
-            }
-        )
-
         # IsaacTeleop-based keyboard teleoperation pipeline
         self.isaac_teleop = IsaacTeleopCfg(
             pipeline_builder=_build_ur10_stack_keyboard_pipeline,
@@ -125,21 +107,6 @@ class UR10ShortSuctionCubeStackEnvCfg(stack_joint_pos_env_cfg.UR10ShortSuctionCu
             controller=DifferentialIKControllerCfg(command_type="pose", use_relative_mode=True, ik_method="dls"),
             scale=1.0,
             body_offset=DifferentialInverseKinematicsActionCfg.OffsetCfg(pos=[0.0, 0.0, -0.159]),
-        )
-
-        self.teleop_devices = DevicesCfg(
-            devices={
-                "keyboard": Se3KeyboardCfg(
-                    pos_sensitivity=0.02,
-                    rot_sensitivity=0.05,
-                    sim_device=self.sim.device,
-                ),
-                "spacemouse": Se3SpaceMouseCfg(
-                    pos_sensitivity=0.05,
-                    rot_sensitivity=0.05,
-                    sim_device=self.sim.device,
-                ),
-            }
         )
 
         # IsaacTeleop-based keyboard teleoperation pipeline

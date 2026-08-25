@@ -9,11 +9,8 @@ from dataclasses import MISSING
 from isaaclab_newton.physics import MJWarpSolverCfg, NewtonCfg, NewtonCollisionPipelineCfg, NewtonShapeCfg
 from isaaclab_physx.physics import PhysxCfg
 from isaaclab_teleop import IsaacTeleopCfg
-from isaaclab_teleop.keyboard import Se3KeyboardCfg
-from isaaclab_teleop.spacemouse import Se3SpaceMouseCfg
 
 from isaaclab.assets import AssetBaseCfg, RigidObjectCfg
-from isaaclab.devices.device_base import DevicesCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg
 from isaaclab.envs.mdp.actions.rmpflow_actions_cfg import RMPFlowActionCfg
 from isaaclab.managers import EventTermCfg as EventTerm
@@ -440,21 +437,6 @@ class RmpFlowAgibotPlaceToy2BoxEnvCfg(PlaceToy2BoxEnvCfg):
             history_length=6,
             debug_vis=True,
             filter_prim_paths_expr=["{ENV_REGEX_NS}/ToyTruck"],
-        )
-
-        self.teleop_devices = DevicesCfg(
-            devices={
-                "keyboard": Se3KeyboardCfg(
-                    pos_sensitivity=0.05,
-                    rot_sensitivity=0.05,
-                    sim_device=self.sim.device,
-                ),
-                "spacemouse": Se3SpaceMouseCfg(
-                    pos_sensitivity=0.05,
-                    rot_sensitivity=0.05,
-                    sim_device=self.sim.device,
-                ),
-            }
         )
 
         # IsaacTeleop-based keyboard teleoperation pipeline

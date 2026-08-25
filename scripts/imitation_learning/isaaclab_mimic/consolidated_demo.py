@@ -80,8 +80,11 @@ import time
 import gymnasium as gym
 import numpy as np
 import torch
-from isaaclab_teleop.keyboard import Se3Keyboard, Se3KeyboardCfg
-from isaaclab_teleop.spacemouse import Se3SpaceMouse, Se3SpaceMouseCfg
+from isaaclab_teleop import create_isaac_teleop_device
+from isaaclab_teleop.control_pollers import KeyboardControlPoller, SpaceMouseResetPoller
+from isaaclab_teleop.isaac_teleop_cfg import CLOUDXR_STANDALONE_ENV
+from isaaclab_teleop.keyboard import se3_keyboard_teleop_cfg
+from isaaclab_teleop.spacemouse import se3_spacemouse_teleop_cfg
 
 from isaaclab.envs import ManagerBasedRLMimicEnv
 from isaaclab.envs.mdp.recorders.recorders_cfg import ActionStateRecorderManagerCfg
@@ -198,11 +201,25 @@ async def run_teleop_robot(
     global num_recorded
     should_reset_teleop_instance = False
     # create controller if needed
+    control_poller = None
     if teleop_interface is None:
-        if args_cli.teleop_device.lower() == "keyboard":
-            teleop_interface = Se3Keyboard(Se3KeyboardCfg(pos_sensitivity=0.2, rot_sensitivity=0.5))
-        elif args_cli.teleop_device.lower() == "spacemouse":
-            teleop_interface = Se3SpaceMouse(Se3SpaceMouseCfg(pos_sensitivity=0.2, rot_sensitivity=0.5))
+        device_name = args_cli.teleop_device.lower()
+        if device_name == "keyboard":
+            teleop_interface = create_isaac_teleop_device(
+                se3_keyboard_teleop_cfg(pos_sensitivity=0.2, rot_sensitivity=0.5),
+                cloudxr_env_file=CLOUDXR_STANDALONE_ENV,
+                use_kit_xr_bridge=False,
+            )
+            teleop_interface.__enter__()
+            control_poller = KeyboardControlPoller(teleop_interface)
+        elif device_name == "spacemouse":
+            teleop_interface = create_isaac_teleop_device(
+                se3_spacemouse_teleop_cfg(pos_sensitivity=0.2, rot_sensitivity=0.5),
+                cloudxr_env_file=CLOUDXR_STANDALONE_ENV,
+                use_kit_xr_bridge=False,
+            )
+            teleop_interface.__enter__()
+            control_poller = SpaceMouseResetPoller(teleop_interface)
         else:
             raise ValueError(
                 f"Invalid device interface '{args_cli.teleop_device}'. Supported: 'keyboard', 'spacemouse'."
@@ -233,6 +250,8 @@ async def run_teleop_robot(
 
         # get keyboard command
         delta_pose, gripper_command = teleop_interface.advance()
+        if control_poller is not None:
+            control_poller.advance()
         # convert to torch
         delta_pose = torch.tensor(delta_pose, dtype=torch.float, device=env.device).repeat(1, 1)
         # compute actions based on environment

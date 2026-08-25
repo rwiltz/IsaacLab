@@ -6,11 +6,12 @@ Removed
   :mod:`isaaclab.devices.gamepad` module), :class:`~isaaclab.devices.Se2SpaceMouse`,
   :class:`~isaaclab.devices.Se2SpaceMouseCfg`, :class:`~isaaclab.devices.Se3SpaceMouse`, and
   :class:`~isaaclab.devices.Se3SpaceMouseCfg` (the :mod:`isaaclab.devices.spacemouse` module).
-  Gamepad and spacemouse teleoperation are now provided by :class:`~isaaclab_teleop.Se2Gamepad`,
-  :class:`~isaaclab_teleop.Se2GamepadCfg`, :class:`~isaaclab_teleop.Se3Gamepad`,
-  :class:`~isaaclab_teleop.Se3GamepadCfg`, :class:`~isaaclab_teleop.Se2SpaceMouse`,
-  :class:`~isaaclab_teleop.Se2SpaceMouseCfg`, :class:`~isaaclab_teleop.Se3SpaceMouse`, and
-  :class:`~isaaclab_teleop.Se3SpaceMouseCfg`, built on the IsaacTeleop session API. Update imports
-  from ``isaaclab.devices`` / ``isaaclab.devices.gamepad`` / ``isaaclab.devices.spacemouse`` to
-  ``isaaclab_teleop.gamepad`` / ``isaaclab_teleop.spacemouse`` (or ``isaaclab_teleop`` directly),
-  and install the ``teleop`` extra (or a standalone ``isaaclab_teleop`` install).
+  Gamepad and spacemouse teleoperation are now provided by
+  :func:`~isaaclab_teleop.se2_gamepad_teleop_cfg`, :func:`~isaaclab_teleop.se3_gamepad_teleop_cfg`,
+  :func:`~isaaclab_teleop.se2_spacemouse_teleop_cfg`, and
+  :func:`~isaaclab_teleop.se3_spacemouse_teleop_cfg`, which build an
+  :class:`~isaaclab_teleop.IsaacTeleopCfg` for a gamepad- or spacemouse-plugin-backed
+  :class:`~isaaclab_teleop.IsaacTeleopDevice`. Update imports from ``isaaclab.devices`` /
+  ``isaaclab.devices.gamepad`` / ``isaaclab.devices.spacemouse`` to ``isaaclab_teleop.gamepad`` /
+  ``isaaclab_teleop.spacemouse`` (or ``isaaclab_teleop`` directly), and install the ``teleop``
+  extra (or a standalone ``isaaclab_teleop`` install).

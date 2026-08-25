@@ -84,7 +84,10 @@ import os
 
 import gymnasium as gym
 import torch
-from isaaclab_teleop.keyboard import Se3Keyboard, Se3KeyboardCfg
+from isaaclab_teleop import create_isaac_teleop_device
+from isaaclab_teleop.control_pollers import KeyboardControlPoller
+from isaaclab_teleop.isaac_teleop_cfg import CLOUDXR_STANDALONE_ENV
+from isaaclab_teleop.keyboard import se3_keyboard_teleop_cfg
 
 from isaaclab.utils.datasets import EpisodeData, HDF5DatasetFileHandler
 
@@ -137,6 +140,7 @@ def compare_states(state_from_dataset, runtime_state, runtime_env_index) -> (boo
 def replay_episodes_loop(  # noqa: C901
     env,
     teleop_interface,
+    control_poller,
     dataset_file_handler: HDF5DatasetFileHandler,
     episode_names: list[str],
     episode_count: int,
@@ -230,9 +234,11 @@ def replay_episodes_loop(  # noqa: C901
                 else:
                     while is_paused:
                         teleop_interface.advance()
+                        control_poller.advance()
                         env.sim.render()
                         continue
                 teleop_interface.advance()
+                control_poller.advance()
                 env.step(actions)
 
                 if state_validation_enabled:
@@ -307,9 +313,15 @@ def main():
     # create environment from loaded config
     env = gym.make(args_cli.task, cfg=env_cfg).unwrapped
 
-    teleop_interface = Se3Keyboard(Se3KeyboardCfg(pos_sensitivity=0.1, rot_sensitivity=0.1))
-    teleop_interface.add_callback("N", play_cb)
-    teleop_interface.add_callback("B", pause_cb)
+    teleop_interface = create_isaac_teleop_device(
+        se3_keyboard_teleop_cfg(pos_sensitivity=0.1, rot_sensitivity=0.1),
+        cloudxr_env_file=CLOUDXR_STANDALONE_ENV,
+        use_kit_xr_bridge=False,
+    )
+    teleop_interface.__enter__()
+    control_poller = KeyboardControlPoller(teleop_interface)
+    control_poller.add_callback("N", play_cb)
+    control_poller.add_callback("B", pause_cb)
     print('Press "B" to pause and "N" to resume the replayed actions.')
 
     # Determine if state validation should be conducted
@@ -333,6 +345,7 @@ def main():
     replayed_episode_count, recorded_episode_count, failed_demo_ids = replay_episodes_loop(
         env,
         teleop_interface,
+        control_poller,
         dataset_file_handler,
         episode_names,
         episode_count,

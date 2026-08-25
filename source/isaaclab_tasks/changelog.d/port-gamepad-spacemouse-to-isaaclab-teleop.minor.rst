@@ -1,8 +1,9 @@
 Changed
 ^^^^^^^
 
-* **Breaking:** The ``contrib`` place/stack environment configs that default a spacemouse
-  ``teleop_devices`` entry now import :class:`~isaaclab_teleop.Se3SpaceMouseCfg` instead of the
-  deprecated :class:`~isaaclab.devices.Se3SpaceMouseCfg`. Installing ``isaaclab_tasks`` now
-  requires the ``teleop`` extra (or a standalone ``isaaclab_teleop`` install) to use these
-  environments.
+* **Breaking:** The removed ``Se3SpaceMouseCfg``-based ``teleop_devices`` entries on the
+  ``contrib`` place/stack environment configs are gone. Spacemouse teleoperation for these
+  environments is still available by passing ``--teleop_device spacemouse`` to
+  ``teleop_se3_agent.py`` / ``record_demos.py``, which now resolves an
+  :class:`~isaaclab_teleop.IsaacTeleopCfg` via :func:`~isaaclab_teleop.se3_spacemouse_teleop_cfg`
+  independent of what the environment config declares.

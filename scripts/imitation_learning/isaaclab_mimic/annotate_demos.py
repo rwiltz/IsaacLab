@@ -69,7 +69,10 @@ import isaaclab_mimic.envs  # noqa: F401
 
 # Only enables inputs if this script is NOT headless mode
 if not args_cli.headless and not os.environ.get("HEADLESS", 0):
-    from isaaclab_teleop.keyboard import Se3Keyboard, Se3KeyboardCfg
+    from isaaclab_teleop import create_isaac_teleop_device
+    from isaaclab_teleop.control_pollers import KeyboardControlPoller
+    from isaaclab_teleop.isaac_teleop_cfg import CLOUDXR_STANDALONE_ENV
+    from isaaclab_teleop.keyboard import se3_keyboard_teleop_cfg
 
 from isaaclab.envs import ManagerBasedRLMimicEnv
 from isaaclab.envs.mdp.recorders.recorders_cfg import ActionStateRecorderManagerCfg
@@ -85,6 +88,7 @@ current_action_index = 0
 marked_subtask_action_indices = []
 skip_episode = False
 keyboard_interface = None
+keyboard_control_poller = None
 
 
 def play_cb():
@@ -170,7 +174,7 @@ class MimicRecorderManagerCfg(ActionStateRecorderManagerCfg):
 
 def main():
     """Add Isaac Lab Mimic annotations to the given demo dataset file."""
-    global is_paused, current_action_index, marked_subtask_action_indices, keyboard_interface
+    global is_paused, current_action_index, marked_subtask_action_indices, keyboard_interface, keyboard_control_poller
 
     # Load input dataset to be annotated
     if not os.path.exists(args_cli.input_file):
@@ -275,12 +279,18 @@ def main():
 
     # Only enables inputs if this script is NOT headless mode
     if not args_cli.headless and not os.environ.get("HEADLESS", 0):
-        keyboard_interface = Se3Keyboard(Se3KeyboardCfg(pos_sensitivity=0.1, rot_sensitivity=0.1))
-        keyboard_interface.add_callback("N", play_cb)
-        keyboard_interface.add_callback("B", pause_cb)
-        keyboard_interface.add_callback("Q", skip_episode_cb)
+        keyboard_interface = create_isaac_teleop_device(
+            se3_keyboard_teleop_cfg(pos_sensitivity=0.1, rot_sensitivity=0.1),
+            cloudxr_env_file=CLOUDXR_STANDALONE_ENV,
+            use_kit_xr_bridge=False,
+        )
+        keyboard_interface.__enter__()
+        keyboard_control_poller = KeyboardControlPoller(keyboard_interface)
+        keyboard_control_poller.add_callback("N", play_cb)
+        keyboard_control_poller.add_callback("B", pause_cb)
+        keyboard_control_poller.add_callback("Q", skip_episode_cb)
         if not args_cli.auto:
-            keyboard_interface.add_callback("S", mark_subtask_cb)
+            keyboard_control_poller.add_callback("S", mark_subtask_cb)
         keyboard_interface.reset()
 
     # simulate environment -- run everything in inference mode
@@ -365,11 +375,13 @@ def replay_episode(
         else:
             while is_paused or skip_episode:
                 keyboard_interface.advance()
+                keyboard_control_poller.advance()
                 env.sim.render()
                 if skip_episode:
                     return False
                 continue
         keyboard_interface.advance()
+        keyboard_control_poller.advance()
         action_tensor = torch.Tensor(action).reshape([1, action.shape[0]])
         env.step(torch.Tensor(action_tensor))
     if success_term is not None:

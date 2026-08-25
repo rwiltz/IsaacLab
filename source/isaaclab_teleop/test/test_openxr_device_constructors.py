@@ -12,7 +12,6 @@ from isaaclab_teleop.deprecated.openxr.retargeters import GripperRetargeterCfg, 
 
 # Import teleop device factory for testing
 from isaaclab_teleop.deprecated.teleop_device_factory import create_teleop_device
-from isaaclab_teleop.keyboard import Se3Keyboard, Se3KeyboardCfg
 
 # Import device classes to test
 from isaaclab.devices import DeviceCfg
@@ -129,20 +128,36 @@ Test teleop device factory.
 """
 
 
-def test_create_teleop_device_basic(mocker):
+def test_create_teleop_device_basic(mock_environment, mocker):
     """Test creating devices using the teleop device factory."""
-    keyboard_cfg = Se3KeyboardCfg(pos_sensitivity=0.8, rot_sensitivity=1.2)
-    devices_cfg: dict[str, DeviceCfg] = {"test_keyboard": keyboard_cfg}
+    xr_cfg = XrCfg(anchor_pos=(0.0, 0.0, 0.0), anchor_rot=(0.0, 0.0, 0.0, 1.0), near_plane=0.15)
+    openxr_cfg = OpenXRDeviceCfg(xr_cfg=xr_cfg)
+    devices_cfg: dict[str, DeviceCfg] = {"test_xr": openxr_cfg}
 
-    teleop_device_mock = mocker.MagicMock()
-    teleop_device_mock.__enter__.return_value = teleop_device_mock
-    mocker.patch("isaaclab_teleop.isaac_teleop_device.create_isaac_teleop_device", return_value=teleop_device_mock)
+    device_mod = importlib.import_module("isaaclab_teleop.deprecated.openxr.openxr_device")
+    mocker.patch.dict(
+        "sys.modules",
+        {
+            "carb": mock_environment["carb"],
+            "omni.kit.xr.core": mock_environment["omni"].kit.xr.core,
+        },
+    )
+    mocker.patch.object(device_mod, "carb", mock_environment["carb"])
+    mocker.patch.object(device_mod, "XRCore", mock_environment["omni"].kit.xr.core.XRCore)
+    mocker.patch.object(device_mod, "XRPoseValidityFlags", mock_environment["omni"].kit.xr.core.XRPoseValidityFlags)
 
-    device = create_teleop_device("test_keyboard", devices_cfg)
+    mock_stage = mocker.MagicMock()
+    mock_prim = mocker.MagicMock()
+    mock_prim.IsValid.return_value = False
+    mock_stage.GetPrimAtPath.return_value = mock_prim
+    mocker.patch.object(device_mod, "sim_utils", mocker.MagicMock())
+    device_mod.sim_utils.get_current_stage.return_value = mock_stage
+    device_mod.sim_utils.create_prim.return_value = None
 
-    assert isinstance(device, Se3Keyboard)
-    assert device.pos_sensitivity == 0.8
-    assert device.rot_sensitivity == 1.2
+    device = create_teleop_device("test_xr", devices_cfg)
+
+    assert isinstance(device, OpenXRDevice)
+    assert device._xr_cfg == xr_cfg
 
 
 def test_create_teleop_device_with_callbacks(mock_environment, mocker):
@@ -217,7 +232,7 @@ def test_create_teleop_device_with_retargeters(mock_environment, mocker):
 
 def test_create_teleop_device_device_not_found():
     """Test error when device name is not found in configuration."""
-    devices_cfg: dict[str, DeviceCfg] = {"keyboard": Se3KeyboardCfg()}
+    devices_cfg: dict[str, DeviceCfg] = {"xr": OpenXRDeviceCfg(xr_cfg=XrCfg())}
 
     with pytest.raises(ValueError, match="Device 'gamepad' not found"):
         create_teleop_device("gamepad", devices_cfg)

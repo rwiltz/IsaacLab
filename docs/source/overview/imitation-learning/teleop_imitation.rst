@@ -115,12 +115,11 @@ the environment by quitting the script with Ctrl+C.
    --teleop_device keyboard
 
 
-The script will print a helper message with key bindings. For keyboard,
-the key bindings are:
+The keyboard key bindings are:
 
 .. code:: text
 
-   Keyboard Controller for SE(3): Se3Keyboard
+   Keyboard Controller for SE(3)
       Reset all commands: R
       Toggle gripper (open/close): K
       Move arm along x-axis: W/S
@@ -145,12 +144,11 @@ To use a SpaceMouse, simply change ``--teleop_device`` accordingly:
    --sensitivity 4 \
    --teleop_device spacemouse
 
-The script will print a helper message with key bindings. For SpaceMouse,
-the key bindings are:
+The SpaceMouse key bindings are:
 
 .. code:: text
 
-   SpaceMouse Controller for SE(3): Se3SpaceMouse
+   SpaceMouse Controller for SE(3)
       Reset all commands: Right click
       Toggle gripper (open/close): Click the left button on the SpaceMouse
       Move arm along x/y-axis: Tilt the SpaceMouse

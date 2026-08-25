@@ -23,7 +23,10 @@ simulation_app = app_launcher.app
 
 import sys
 
-from isaaclab_teleop.keyboard import Se3Keyboard, Se3KeyboardCfg
+from isaaclab_teleop import create_isaac_teleop_device
+from isaaclab_teleop.control_pollers import KeyboardControlPoller
+from isaaclab_teleop.isaac_teleop_cfg import CLOUDXR_STANDALONE_ENV
+from isaaclab_teleop.keyboard import se3_keyboard_teleop_cfg
 
 from isaaclab.sim import SimulationCfg, SimulationContext
 
@@ -44,11 +47,16 @@ def main():
     sim = SimulationContext(SimulationCfg(dt=0.01))
 
     # Create teleoperation interface
-    teleop_interface = Se3Keyboard(Se3KeyboardCfg(pos_sensitivity=0.1, rot_sensitivity=0.1))
+    teleop_interface = create_isaac_teleop_device(
+        se3_keyboard_teleop_cfg(pos_sensitivity=0.1, rot_sensitivity=0.1),
+        cloudxr_env_file=CLOUDXR_STANDALONE_ENV,
+        use_kit_xr_bridge=False,
+    )
+    teleop_interface.__enter__()
     # Add teleoperation callbacks
-    # available key buttons: https://docs.omniverse.nvidia.com/kit/docs/carbonite/latest/docs/python/carb.html?highlight=keyboardeventtype#carb.input.KeyboardInput
-    teleop_interface.add_callback("L", print_cb)
-    teleop_interface.add_callback("ESCAPE", quit_cb)
+    control_poller = KeyboardControlPoller(teleop_interface)
+    control_poller.add_callback("L", print_cb)
+    control_poller.add_callback("ESCAPE", quit_cb)
 
     print("Press 'L' to print a message. Press 'ESC' to quit.")
 
@@ -72,10 +80,11 @@ def main():
             sim.step()
             continue
         # get keyboard command
-        delta_pose, gripper_command = teleop_interface.advance()
+        action = teleop_interface.advance()
+        control_poller.advance()
         # print command
-        if gripper_command:
-            print(f"Gripper command: {gripper_command}")
+        if action is not None:
+            print(f"Action: {action}")
         # step simulation
         sim.step()
         # check if simulator is stopped

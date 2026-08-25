@@ -7,13 +7,9 @@
 
 Supports multiple input devices (e.g., keyboard, spacemouse, gamepad) and devices
 configured within the environment (including OpenXR-based hand tracking or motion
-controllers).
-
-This script supports two teleoperation stacks:
-1. Native Isaac Lab teleop stack (via teleop_devices in env_cfg)
-2. IsaacTeleop-based stack (via isaac_teleop in env_cfg)
-
-The script automatically detects which stack to use based on the environment config.
+controllers), all driven through the IsaacTeleop session/pipeline API
+(:mod:`isaaclab_teleop`). Pass ``--teleop_device`` to select a built-in device by name,
+or declare ``env_cfg.isaac_teleop`` in the environment config for a custom pipeline.
 """
 
 """Launch Isaac Sim Simulator first."""
@@ -38,9 +34,10 @@ parser.add_argument(
     type=str,
     default=None,
     help=(
-        "Legacy teleop device name. When omitted, the IsaacTeleop pipeline is used if configured in the env,"
-        " otherwise keyboard is used as fallback. When explicitly provided, the script uses the legacy"
-        " teleop_devices path and looks up this name in env_cfg.teleop_devices.devices."
+        "Built-in device name (keyboard, spacemouse, gamepad) to drive teleoperation with,"
+        " overriding any isaac_teleop pipeline declared in the environment config. When omitted,"
+        " the environment's declared isaac_teleop pipeline is used if present, otherwise keyboard"
+        " is used as a fallback."
     ),
 )
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
@@ -114,18 +111,15 @@ if unrecognized_args:
 import logging
 
 import gymnasium as gym
-import numpy as np
 import torch
 from isaaclab_physx.renderers import IsaacRtxRendererGlobalSettingsCfg
 from isaaclab_physx.renderers.isaac_rtx_renderer_utils import (
     apply_isaac_rtx_global_settings,
 )
-from isaaclab_teleop.gamepad import Se3Gamepad, Se3GamepadCfg
-from isaaclab_teleop.keyboard import Se3Keyboard, Se3KeyboardCfg
-from isaaclab_teleop.spacemouse import Se3SpaceMouse, Se3SpaceMouseCfg
+from isaaclab_teleop.builtin_teleop import SE3_TELEOP_CFG_BUILDERS
+from isaaclab_teleop.control_pollers import KeyboardControlPoller, SpaceMouseResetPoller
 
 from isaaclab.devices.openxr import remove_camera_configs
-from isaaclab.devices.teleop_device_factory import create_teleop_device
 from isaaclab.envs import ManagerBasedRLEnvCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
 
@@ -190,29 +184,36 @@ def _ensure_replicator_loaded() -> None:
     omni.kit.app.get_app().get_extension_manager().set_extension_enabled_immediate("omni.replicator.core", True)
 
 
-def _create_builtin_device(device_name: str, sensitivity: float) -> object | None:
-    """Create a built-in teleop device by name, or return None if unrecognized."""
-    name = device_name.lower()
-    if name == "keyboard":
-        return Se3Keyboard(Se3KeyboardCfg(pos_sensitivity=0.05 * sensitivity, rot_sensitivity=0.05 * sensitivity))
-    elif name == "spacemouse":
-        return Se3SpaceMouse(Se3SpaceMouseCfg(pos_sensitivity=0.05 * sensitivity, rot_sensitivity=0.05 * sensitivity))
-    elif name == "gamepad":
-        return Se3Gamepad(Se3GamepadCfg(pos_sensitivity=0.1 * sensitivity, rot_sensitivity=0.1 * sensitivity))
-    return None
+#: Sensitivity multiplier applied to a built-in device's default pos/rot sensitivity when
+#: selected via --teleop_device, matching historical per-device tuning.
+_BUILTIN_SENSITIVITY_SCALE = {"keyboard": 0.05, "spacemouse": 0.05, "gamepad": 0.1}
 
 
-def _make_haptic_io(env, teleop_interface, env_cfg, use_isaac_teleop: bool):
+def _resolve_isaac_teleop_cfg(env_cfg, device_name: str | None, sensitivity: float, sim_device: str):
+    """Resolve the IsaacTeleopCfg to drive teleoperation with.
+
+    ``--teleop_device`` (if given) always wins; otherwise the environment's declared
+    ``isaac_teleop`` pipeline is used; otherwise keyboard is a fallback default. Returns
+    ``None`` if ``device_name`` is set but not a recognized built-in device.
+    """
+    if device_name is None and getattr(env_cfg, "isaac_teleop", None) is not None:
+        return env_cfg.isaac_teleop
+    name = (device_name or "keyboard").lower()
+    builder = SE3_TELEOP_CFG_BUILDERS.get(name)
+    if builder is None:
+        return None
+    scale = _BUILTIN_SENSITIVITY_SCALE.get(name, 1.0)
+    return builder(pos_sensitivity=scale * sensitivity, rot_sensitivity=scale * sensitivity, sim_device=sim_device)
+
+
+def _make_haptic_io(env, teleop_interface, env_cfg):
     """Return ``(update, stop)`` callables driving controller haptics, or no-ops.
 
-    Keeps haptics opt-in without branching in the main loop: both callables are
-    no-ops unless the active device is an IsaacTeleop device and the env declares
-    a ``haptic_feedback`` config. ``update`` renders the current contact force;
-    ``stop`` zeroes it so a stale pulse does not persist while teleop is paused.
+    Keeps haptics opt-in without branching in the main loop: both callables are no-ops unless
+    the env declares a ``haptic_feedback`` config. ``update`` renders the current contact
+    force; ``stop`` zeroes it so a stale pulse does not persist while teleop is paused.
     """
     noop = lambda: None  # noqa: E731
-    if not use_isaac_teleop:
-        return noop, noop
     from isaaclab_teleop import create_haptic_feedback_driver
 
     driver = create_haptic_feedback_driver(env.unwrapped, teleop_interface, env_cfg)
@@ -221,105 +222,80 @@ def _make_haptic_io(env, teleop_interface, env_cfg, use_isaac_teleop: bool):
     return driver.update, driver.stop
 
 
-def _isaac_teleop_pipeline_uses_local_plugin(env_cfg) -> bool:
-    """Whether ``env_cfg.isaac_teleop`` is itself driven by a bundled local-device plugin.
-
-    A plugin-backed pipeline (keyboard, spacemouse, gamepad, ...) is already a local physical
-    input device with its own B/P/R start/pause/reset bindings; layering a second, standalone
-    plugin-backed IsaacTeleop session on top would try to launch a second CloudXR runtime
-    against the same fixed run directory and crash with "A CloudXR runtime is already serving
-    ...". This check is plugin-agnostic (not just "keyboard") since any bundled plugin implies
-    a local, non-XR-headset device driving its own session the same way.
-    """
-    isaac_teleop = getattr(env_cfg, "isaac_teleop", None)
-    if isaac_teleop is None:
-        return False
-    return bool(isaac_teleop.plugins)
+def _local_plugin_name(isaac_teleop_cfg) -> str | None:
+    """The single bundled local-device plugin name driving this pipeline, or None for pure XR."""
+    plugins = getattr(isaac_teleop_cfg, "plugins", None) or []
+    names = {p.plugin_name for p in plugins}
+    if not names:
+        return None
+    return next(iter(names))
 
 
-class _PrimaryDeviceControlKeyPoller:
-    """Fires ``teleop_interface``'s own START/STOP/RESET control events from physical B/P/R key
-    presses, by polling that *same* device's ``keyboard_all_keys`` bitmap output.
+class _AuxiliaryKeyboardPoller:
+    """Advances an auxiliary keyboard-only IsaacTeleopDevice and its control poller together.
 
-    Used instead of a second keyboard-backed IsaacTeleopDevice when ``env_cfg.isaac_teleop`` is
-    itself plugin-driven (see :func:`_isaac_teleop_pipeline_uses_local_plugin`): a second
-    plugin-backed session would try to launch a second CloudXR runtime against the same fixed
-    run directory and crash with "A CloudXR runtime is already serving ...". Polling the primary
-    device's own bitmap gives physical start/pause/reset control without that collision.
+    Used for headset-free B/P/R control layered on top of a pure-XR primary pipeline (one with
+    no bundled local-device plugin of its own).
     """
 
-    _EVDEV_CODE_TO_KEY_NAME = {
-        16: "Q", 17: "W", 18: "E", 19: "R", 20: "T", 21: "Y", 22: "U", 23: "I", 24: "O", 25: "P",
-        30: "A", 31: "S", 32: "D", 33: "F", 34: "G", 35: "H", 36: "J", 37: "K", 38: "L",
-        44: "Z", 45: "X", 46: "C", 47: "V", 48: "B", 49: "N", 50: "M",
-    }  # fmt: skip
-    _START_KEY, _STOP_KEY, _RESET_KEY = "B", "P", "R"
-
-    def __init__(self, teleop_device) -> None:
-        self._teleop_device = teleop_device
-        self._prev_bitmap = None
+    def __init__(self, device, poller: KeyboardControlPoller) -> None:
+        self._device = device
+        self._poller = poller
 
     def advance(self) -> None:
-        """Check for B/P/R rising edges since the last call and fire the matching control event."""
-        result = self._teleop_device.last_step_result
-        if result is None:
-            return
-        all_keys = result.get("keyboard_all_keys")
-        if all_keys is None or all_keys.is_none:
-            return
-        bitmap = np.asarray(all_keys[0])
-
-        prev = self._prev_bitmap
-        self._prev_bitmap = bitmap
-        if prev is None or prev.shape != bitmap.shape:
-            prev = np.zeros_like(bitmap)
-        rising_codes = np.nonzero((bitmap != 0) & (prev == 0))[0]
-
-        for code in rising_codes:
-            name = self._EVDEV_CODE_TO_KEY_NAME.get(int(code))
-            if name == self._START_KEY:
-                self._teleop_device.request_start()
-            elif name == self._STOP_KEY:
-                self._teleop_device.request_stop()
-            elif name == self._RESET_KEY:
-                self._teleop_device.reset(pause=True)
+        self._device.advance()
+        self._poller.advance()
 
 
-def _make_control_keyboard(teleop_interface, use_isaac_teleop: bool, has_window: bool, env_cfg=None):
-    """Create an optional keyboard for headset-free IsaacTeleop control.
+def _make_control_pollers(teleop_interface, isaac_teleop_cfg, has_window: bool, sim_device: str) -> list:
+    """Build the pollers needed for headset-free physical control (B/P/R, or right-button reset).
 
-    Binds ``B`` / ``P`` / ``R`` to start-resume / pause / reset so a user can drive the teleop
-    state machine without an XR headset. Returns ``None`` when there is no window or when
-    IsaacTeleop is not the active stack (a windowless run still auto-starts teleop).
+    The caller must call ``.advance()`` on every returned poller every frame (in addition to
+    advancing ``teleop_interface`` itself) and keep the list referenced for the app's lifetime.
 
-    When the active ``env_cfg.isaac_teleop`` pipeline is itself driven by a local plugin device
-    (e.g. the keyboard-driven Franka/UR10/Galbot/Agibot relative-mode configs), returns a
-    :class:`_PrimaryDeviceControlKeyPoller` that polls ``teleop_interface`` itself instead of
-    constructing a second keyboard-backed device -- a second plugin-backed IsaacTeleop session
-    would collide with the primary one's CloudXR runtime.
+    - A keyboard-plugin-backed primary pipeline is polled directly for B/P/R.
+    - A spacemouse-plugin-backed primary pipeline is polled directly for its right-button reset.
+    - A gamepad-plugin-backed primary pipeline has no physical control mechanism (matching the
+      legacy gamepad device, which never wired one either) -- returns no pollers.
+    - A pure-XR primary pipeline (no bundled plugin) gets an auxiliary keyboard-only device for
+      B/P/R, since it has no physical input of its own to poll.
 
-    The caller must call ``.advance()`` on the returned object every frame (it is never the
-    primary device advanced for its action output) and keep it referenced for the app's
-    lifetime. ``R`` is an operator reset: :meth:`~isaaclab_teleop.IsaacTeleopDevice.reset` with
-    ``pause=True`` injects a single RESET pulse (the loop's control-event handler turns it into
-    one environment reset) and pauses the session (binding it straight to the reset callback
-    would reset the env twice).
+    Returns an empty list when there is no window (a windowless run still auto-starts teleop).
     """
-    if not use_isaac_teleop or not has_window:
-        return None
-    if _isaac_teleop_pipeline_uses_local_plugin(env_cfg):
+    if not has_window:
+        return []
+    plugin_name = _local_plugin_name(isaac_teleop_cfg)
+    if plugin_name == "keyboard":
         print("IsaacTeleop control keys: [B] start/resume  [P] pause  [R] reset")
-        return _PrimaryDeviceControlKeyPoller(teleop_interface)
+        return [KeyboardControlPoller(teleop_interface)]
+    if plugin_name == "spacemouse":
+        return [SpaceMouseResetPoller(teleop_interface)]
+    if plugin_name is not None:
+        # gamepad, or an unrecognized local plugin: no known physical control mechanism, and
+        # layering a second plugin-backed session here would collide with the primary's
+        # CloudXR runtime the same way a second keyboard session would.
+        return []
+
     try:
-        keyboard = Se3Keyboard(Se3KeyboardCfg(pos_sensitivity=0.0, rot_sensitivity=0.0))
-        keyboard.add_callback("B", teleop_interface.request_start)
-        keyboard.add_callback("P", teleop_interface.request_stop)
-        keyboard.add_callback("R", lambda: teleop_interface.reset(pause=True))
+        from isaaclab_teleop import create_isaac_teleop_device
+        from isaaclab_teleop.isaac_teleop_cfg import CLOUDXR_STANDALONE_ENV
+        from isaaclab_teleop.keyboard import se3_keyboard_teleop_cfg
+
+        aux_device = create_isaac_teleop_device(
+            se3_keyboard_teleop_cfg(pos_sensitivity=0.0, rot_sensitivity=0.0, sim_device=sim_device),
+            cloudxr_env_file=CLOUDXR_STANDALONE_ENV,
+            use_kit_xr_bridge=False,
+        )
+        aux_device.__enter__()
+        poller = KeyboardControlPoller(aux_device)
+        poller.add_callback("B", teleop_interface.request_start)
+        poller.add_callback("P", teleop_interface.request_stop)
+        poller.add_callback("R", lambda: teleop_interface.reset(pause=True))
         print("IsaacTeleop control keys: [B] start/resume  [P] pause  [R] reset")
-        return keyboard
+        return [_AuxiliaryKeyboardPoller(aux_device, poller)]
     except Exception as e:
         logger.warning(f"Control keyboard unavailable ({e}); teleop still auto-starts without --xr")
-        return None
+        return []
 
 
 def main() -> None:  # noqa: C901
@@ -348,18 +324,23 @@ def main() -> None:  # noqa: C901
         # add termination condition for reaching the goal otherwise the environment won't reset
         env_cfg.terminations.object_reached_goal = DoneTerm(func=mdp.object_reached_goal)
 
-    # When --teleop_device is explicitly provided, use the legacy teleop_devices path
-    # even if isaac_teleop is configured. Otherwise prefer isaac_teleop when available.
-    teleop_device_explicitly_set = args_cli.teleop_device is not None
-    use_isaac_teleop = (
-        not teleop_device_explicitly_set and hasattr(env_cfg, "isaac_teleop") and env_cfg.isaac_teleop is not None
-    )
+    # --teleop_device (if given) always wins over any env-declared isaac_teleop pipeline;
+    # otherwise the env's declared pipeline is used, falling back to keyboard if neither is set.
+    isaac_teleop_cfg = _resolve_isaac_teleop_cfg(env_cfg, args_cli.teleop_device, args_cli.sensitivity, args_cli.device)
+    if isaac_teleop_cfg is None:
+        logger.error(
+            f"--teleop_device={args_cli.teleop_device} is not a built-in device name."
+            f" Built-in devices: {', '.join(sorted(SE3_TELEOP_CFG_BUILDERS))}."
+        )
+        simulation_app.close()
+        return
+    env_cfg.isaac_teleop = isaac_teleop_cfg
 
     from isaaclab_teleop import XrCameraFeedSession
 
     camera_feed_session = XrCameraFeedSession.prepare(
         env_cfg,
-        enabled=args_cli.xr and use_isaac_teleop,
+        enabled=args_cli.xr,
         camera_rendering_enabled=not args_cli.disable_external_cameras,
     )
 
@@ -445,7 +426,6 @@ def main() -> None:  # noqa: C901
         teleoperation_active = False
         print("Teleoperation deactivated")
 
-    # Create device config if not already in env_cfg
     teleoperation_callbacks: dict[str, Callable[[], None]] = {
         "R": reset_recording_instance,
         "START": start_teleoperation,
@@ -453,90 +433,41 @@ def main() -> None:  # noqa: C901
         "RESET": reset_recording_instance,
     }
 
-    # For XR devices (hand tracking or IsaacTeleop), default to inactive. Without
-    # --xr, teleop is started locally (see ``request_start`` below) rather than by
-    # a headset, so it still begins running -- but it flows through the same state
-    # machine, so keyboard/host pause/resume keeps working.
-    if use_isaac_teleop or args_cli.xr:
-        teleoperation_active = env_cfg.isaac_teleop.teleoperation_active_default if use_isaac_teleop else False
-    else:
-        # Always active for other devices
-        teleoperation_active = True
-
-    # Create teleop device based on configuration
-    teleop_interface = None
+    # Default to inactive without --xr and to the pipeline's configured default with --xr: a
+    # headset drives START explicitly, but without one teleop is started locally just below
+    # (``request_start``) so it still begins running -- flowing through the same state machine
+    # keeps keyboard/host pause/resume working either way.
+    teleoperation_active = env_cfg.isaac_teleop.teleoperation_active_default if args_cli.xr else False
 
     try:
-        if use_isaac_teleop:
-            from isaaclab_teleop import create_isaac_teleop_device, poll_control_events
+        from isaaclab_teleop import create_isaac_teleop_device, poll_control_events
 
-            teleop_interface = create_isaac_teleop_device(
-                env_cfg.isaac_teleop,
-                sim_device=args_cli.device,
-                callbacks=teleoperation_callbacks,
-                cloudxr_env_file=_resolve_cloudxr_env(args_cli.cloudxr_env, args_cli.xr),
-                auto_launch_cloudxr=args_cli.auto_launch_cloudxr,
-                enable_debug_visualization=args_cli.enable_debug_visualization,
-                use_kit_xr_bridge=args_cli.xr,
-                haptic_cfg=getattr(env_cfg, "haptic_feedback", None),
-            )
-
-        elif teleop_device_explicitly_set:
-            device_name = args_cli.teleop_device
-            if hasattr(env_cfg, "teleop_devices") and device_name in env_cfg.teleop_devices.devices:
-                teleop_interface = create_teleop_device(
-                    device_name, env_cfg.teleop_devices.devices, teleoperation_callbacks
-                )
-            else:
-                teleop_interface = _create_builtin_device(device_name, args_cli.sensitivity)
-                if teleop_interface is None:
-                    logger.error(
-                        f"--teleop_device={device_name} was passed but no matching entry exists in"
-                        " env_cfg.teleop_devices and it is not a built-in device name. Either remove"
-                        " --teleop_device to use the IsaacTeleop pipeline, or add a"
-                        f" '{device_name}' entry under teleop_devices in the environment config."
-                        " Built-in devices: keyboard, spacemouse, gamepad."
-                    )
-                    env.close()
-                    simulation_app.close()
-                    return
-                for key, callback in teleoperation_callbacks.items():
-                    try:
-                        teleop_interface.add_callback(key, callback)
-                    except (ValueError, TypeError) as e:
-                        logger.warning(f"Failed to add callback for key {key}: {e}")
-        else:
-            # No --teleop_device and no isaac_teleop: fall back to keyboard
-            sensitivity = args_cli.sensitivity
-            teleop_interface = Se3Keyboard(
-                Se3KeyboardCfg(pos_sensitivity=0.05 * sensitivity, rot_sensitivity=0.05 * sensitivity)
-            )
-            for key, callback in teleoperation_callbacks.items():
-                try:
-                    teleop_interface.add_callback(key, callback)
-                except (ValueError, TypeError) as e:
-                    logger.warning(f"Failed to add callback for key {key}: {e}")
+        teleop_interface = create_isaac_teleop_device(
+            env_cfg.isaac_teleop,
+            sim_device=args_cli.device,
+            callbacks=teleoperation_callbacks,
+            cloudxr_env_file=_resolve_cloudxr_env(args_cli.cloudxr_env, args_cli.xr),
+            auto_launch_cloudxr=args_cli.auto_launch_cloudxr,
+            enable_debug_visualization=args_cli.enable_debug_visualization,
+            use_kit_xr_bridge=args_cli.xr,
+            haptic_cfg=getattr(env_cfg, "haptic_feedback", None),
+        )
     except Exception as e:
         logger.error(f"Failed to create teleop device: {e}")
         env.close()
         simulation_app.close()
         return
 
-    if teleop_interface is None:
-        logger.error("Failed to create teleop interface")
-        env.close()
-        simulation_app.close()
-        return
-
     print(f"Using teleop device: {teleop_interface}")
 
-    # Optional controller haptics: no-ops unless the env declares a
-    # ``haptic_feedback`` config and the device can render it (IsaacTeleop).
-    haptic_update, haptic_stop = _make_haptic_io(env, teleop_interface, env_cfg, use_isaac_teleop)
+    # Optional controller haptics: no-ops unless the env declares a ``haptic_feedback`` config.
+    haptic_update, haptic_stop = _make_haptic_io(env, teleop_interface, env_cfg)
 
-    # Optional keyboard for headset-free IsaacTeleop control. Advanced every frame in
-    # ``run_loop`` below so its own B/P/R polling runs -- it is never the primary device.
-    control_keyboard = _make_control_keyboard(teleop_interface, use_isaac_teleop, app_launcher.has_window, env_cfg)
+    # Optional pollers for headset-free physical control (B/P/R, or right-button reset).
+    # Advanced every frame in ``run_loop`` below -- never the primary device itself.
+    control_pollers = _make_control_pollers(
+        teleop_interface, env_cfg.isaac_teleop, app_launcher.has_window, args_cli.device
+    )
 
     def run_loop():
         """Inner function to run the teleop loop with access to nonlocal variables."""
@@ -549,11 +480,10 @@ def main() -> None:  # noqa: C901
         # Without --xr there is no headset to send START, so start locally ([B]/[P] can
         # still pause/resume). The reset() above is a host reset (a pure pulse), so it does
         # not cancel this start.
-        if use_isaac_teleop and not args_cli.xr:
+        if not args_cli.xr:
             teleop_interface.request_start()
 
-        stack_name = "IsaacTeleop" if use_isaac_teleop else "native"
-        print(f"{stack_name} teleoperation started. Press 'R' to reset the environment.")
+        print("IsaacTeleop teleoperation started. Press 'R' to reset the environment.")
 
         # simulate environment
         while simulation_app.is_running():
@@ -562,15 +492,14 @@ def main() -> None:  # noqa: C901
                 with torch.inference_mode():
                     # get device command
                     action = teleop_interface.advance()
-                    if control_keyboard is not None:
-                        control_keyboard.advance()
+                    for poller in control_pollers:
+                        poller.advance()
 
-                    if use_isaac_teleop:
-                        ctrl = poll_control_events(teleop_interface)
-                        if ctrl.is_active is not None:
-                            teleoperation_active = ctrl.is_active
-                        if ctrl.should_reset:
-                            should_reset_recording_instance = True
+                    ctrl = poll_control_events(teleop_interface)
+                    if ctrl.is_active is not None:
+                        teleoperation_active = ctrl.is_active
+                    if ctrl.should_reset:
+                        should_reset_recording_instance = True
 
                     # action is None when IsaacTeleop session hasn't started yet
                     # (e.g. waiting for user to click "Start AR")
@@ -600,13 +529,8 @@ def main() -> None:  # noqa: C901
                 break
 
     # Run the teleoperation loop
-    # IsaacTeleop requires a context manager, native devices don't
-    if use_isaac_teleop:
-        with teleop_interface, camera_feed_session.bind(env):
-            run_loop()
-    else:
-        with camera_feed_session.bind(env):
-            run_loop()
+    with teleop_interface, camera_feed_session.bind(env):
+        run_loop()
 
     # close the simulator
     env.close()

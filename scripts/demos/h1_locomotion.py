@@ -80,8 +80,7 @@ def _create_keyboard_bitmap_device(sim_device: str):
     """Build an IsaacTeleop device whose ``action`` output is the raw 256-key evdev bitmap.
 
     Used for demos that need continuous held/released key state (not the edge-triggered
-    start/stop/reset semantics of :class:`~isaaclab_teleop.Se2Keyboard` /
-    :class:`~isaaclab_teleop.Se3Keyboard`).
+    start/stop/reset semantics of :class:`~isaaclab_teleop.control_pollers.KeyboardControlPoller`).
     """
     from isaaclab_teleop.isaac_teleop_cfg import CLOUDXR_STANDALONE_ENV, IsaacTeleopCfg
     from isaaclab_teleop.isaac_teleop_device import create_isaac_teleop_device
