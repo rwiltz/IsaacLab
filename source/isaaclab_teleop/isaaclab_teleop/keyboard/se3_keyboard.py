@@ -190,7 +190,7 @@ class Se3Keyboard(DeviceBase):
                 KeyboardToSe3RelRetargeterConfig(pos_sensitivity=pos_sensitivity, rot_sensitivity=rot_sensitivity),
                 name="se3",
             )
-            connected_se3 = se3.connect({"keyboard": keyboard_source.output("keyboard")})
+            connected_se3 = se3.connect({"keyboard_all_keys": keyboard_source.output("keyboard_all_keys")})
 
             ee_delta_elements = ["dx", "dy", "dz", "drx", "dry", "drz"]
             input_config = {"ee_delta": ee_delta_elements}
@@ -200,7 +200,7 @@ class Se3Keyboard(DeviceBase):
 
             if gripper_term:
                 gripper = KeyboardGripperRetargeter(name="gripper")
-                connected_gripper = gripper.connect({"keyboard": keyboard_source.output("keyboard")})
+                connected_gripper = gripper.connect({"keyboard_all_keys": keyboard_source.output("keyboard_all_keys")})
                 input_config["gripper_command"] = ["gripper_value"]
                 input_types["gripper_command"] = "scalar"
                 reorder_inputs["gripper_command"] = connected_gripper.output("gripper_command")
