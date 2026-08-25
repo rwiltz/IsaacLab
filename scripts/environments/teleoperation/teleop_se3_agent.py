@@ -247,7 +247,9 @@ class _AuxiliaryKeyboardPoller:
         self._poller.advance()
 
 
-def _make_control_pollers(teleop_interface, isaac_teleop_cfg, has_window: bool, sim_device: str) -> list:
+def _make_control_pollers(
+    teleop_interface, isaac_teleop_cfg, has_window: bool, sim_device: str, on_reset: Callable[[], None]
+) -> list:
     """Build the pollers needed for headset-free physical control (B/P/R, or right-button reset).
 
     The caller must call ``.advance()`` on every returned poller every frame (in addition to
@@ -260,16 +262,22 @@ def _make_control_pollers(teleop_interface, isaac_teleop_cfg, has_window: bool, 
     - A pure-XR primary pipeline (no bundled plugin) gets an auxiliary keyboard-only device for
       B/P/R, since it has no physical input of its own to poll.
 
+    Every physical reset trigger (R key, SpaceMouse right button) invokes ``on_reset`` directly,
+    in addition to the teleop device's own ``reset(pause=True)`` -- this drives the environment
+    reset flag immediately rather than depending on the teleop session's own control-event
+    propagation, which is a frame (or more) behind the physical input.
+
     Returns an empty list when there is no window (a windowless run still auto-starts teleop).
     """
     if not has_window:
         return []
     plugin_name = _local_plugin_name(isaac_teleop_cfg)
     if plugin_name == "keyboard":
-        print("IsaacTeleop control keys: [B] start/resume  [P] pause  [R] reset")
-        return [KeyboardControlPoller(teleop_interface)]
+        poller = KeyboardControlPoller(teleop_interface)
+        poller.add_callback("R", on_reset)
+        return [poller]
     if plugin_name == "spacemouse":
-        return [SpaceMouseResetPoller(teleop_interface)]
+        return [SpaceMouseResetPoller(teleop_interface, on_reset=on_reset)]
     if plugin_name is not None:
         # gamepad, or an unrecognized local plugin: no known physical control mechanism, and
         # layering a second plugin-backed session here would collide with the primary's
@@ -290,8 +298,12 @@ def _make_control_pollers(teleop_interface, isaac_teleop_cfg, has_window: bool, 
         poller = KeyboardControlPoller(aux_device)
         poller.add_callback("B", teleop_interface.request_start)
         poller.add_callback("P", teleop_interface.request_stop)
-        poller.add_callback("R", lambda: teleop_interface.reset(pause=True))
-        print("IsaacTeleop control keys: [B] start/resume  [P] pause  [R] reset")
+
+        def _reset() -> None:
+            teleop_interface.reset(pause=True)
+            on_reset()
+
+        poller.add_callback("R", _reset)
         return [_AuxiliaryKeyboardPoller(aux_device, poller)]
     except Exception as e:
         logger.warning(f"Control keyboard unavailable ({e}); teleop still auto-starts without --xr")
@@ -466,7 +478,7 @@ def main() -> None:  # noqa: C901
     # Optional pollers for headset-free physical control (B/P/R, or right-button reset).
     # Advanced every frame in ``run_loop`` below -- never the primary device itself.
     control_pollers = _make_control_pollers(
-        teleop_interface, env_cfg.isaac_teleop, app_launcher.has_window, args_cli.device
+        teleop_interface, env_cfg.isaac_teleop, app_launcher.has_window, args_cli.device, reset_recording_instance
     )
 
     def run_loop():

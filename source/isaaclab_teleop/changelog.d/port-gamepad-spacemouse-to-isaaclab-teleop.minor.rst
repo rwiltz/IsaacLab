@@ -13,4 +13,7 @@ Added
 * Added :class:`~isaaclab_teleop.control_pollers.SpaceMouseResetPoller`, a standalone utility that
   polls a spacemouse-plugin-backed :class:`~isaaclab_teleop.IsaacTeleopDevice`'s
   ``spacemouse_buttons`` output and fires ``reset(pause=True)`` on the right button's rising edge.
-  Construct one alongside the teleop device and call ``.advance()`` on it once per frame.
+  Construct one alongside the teleop device and call ``.advance()`` on it once per frame. Accepts
+  an optional ``on_reset`` callback fired directly on the same rising edge, so callers do not have
+  to depend on the teleop session's own control-event propagation (which can lag a frame or more
+  behind the physical button press) to detect a reset request.

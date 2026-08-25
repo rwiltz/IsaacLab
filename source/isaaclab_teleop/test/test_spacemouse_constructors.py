@@ -52,6 +52,26 @@ def _make_poller(mocker) -> SpaceMouseResetPoller:
 # ---------------------------------------------------------------------------
 
 
+class TestOnResetCallback:
+    def test_right_button_fires_on_reset_directly(self, mocker):
+        teleop_device = mocker.MagicMock()
+        teleop_device.last_step_result = None
+        on_reset = mocker.MagicMock()
+        poller = SpaceMouseResetPoller(teleop_device, on_reset=on_reset)
+        poller._teleop_device.last_step_result = {"spacemouse_buttons": _FakeOptionalTensorGroup(_buttons_bitmap([1]))}
+
+        poller.advance()
+
+        poller._teleop_device.reset.assert_called_once_with(pause=True)
+        on_reset.assert_called_once()
+
+    def test_no_on_reset_is_optional(self, mocker):
+        poller = _make_poller(mocker)
+        poller._teleop_device.last_step_result = {"spacemouse_buttons": _FakeOptionalTensorGroup(_buttons_bitmap([1]))}
+
+        poller.advance()  # should not raise with the default on_reset=None
+
+
 class TestPhysicalRightButtonReset:
     def test_right_button_fires_reset_pause_true(self, mocker):
         poller = _make_poller(mocker)

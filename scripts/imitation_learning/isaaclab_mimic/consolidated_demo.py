@@ -200,6 +200,12 @@ async def run_teleop_robot(
     """Run teleop robot."""
     global num_recorded
     should_reset_teleop_instance = False
+
+    # add teleoperation key for reset current recording instance
+    def reset_teleop_instance():
+        nonlocal should_reset_teleop_instance
+        should_reset_teleop_instance = True
+
     # create controller if needed
     control_poller = None
     if teleop_interface is None:
@@ -212,6 +218,10 @@ async def run_teleop_robot(
             )
             teleop_interface.__enter__()
             control_poller = KeyboardControlPoller(teleop_interface)
+            # Fire the reset callback directly on the physical R key's rising edge, rather than
+            # depending on the teleop session's own control-event propagation (which lags a
+            # frame or more behind the physical key press).
+            control_poller.add_callback("R", reset_teleop_instance)
         elif device_name == "spacemouse":
             teleop_interface = create_isaac_teleop_device(
                 se3_spacemouse_teleop_cfg(pos_sensitivity=0.2, rot_sensitivity=0.5),
@@ -219,18 +229,11 @@ async def run_teleop_robot(
                 use_kit_xr_bridge=False,
             )
             teleop_interface.__enter__()
-            control_poller = SpaceMouseResetPoller(teleop_interface)
+            control_poller = SpaceMouseResetPoller(teleop_interface, on_reset=reset_teleop_instance)
         else:
             raise ValueError(
                 f"Invalid device interface '{args_cli.teleop_device}'. Supported: 'keyboard', 'spacemouse'."
             )
-
-    # add teleoperation key for reset current recording instance
-    def reset_teleop_instance():
-        nonlocal should_reset_teleop_instance
-        should_reset_teleop_instance = True
-
-    teleop_interface.add_callback("R", reset_teleop_instance)
 
     teleop_interface.reset()
     print(teleop_interface)

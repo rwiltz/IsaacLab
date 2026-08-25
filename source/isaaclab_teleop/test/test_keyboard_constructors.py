@@ -94,6 +94,20 @@ class TestPhysicalControlKeys:
 
         poller._teleop_device.reset.assert_called_once_with(pause=True)
 
+    def test_r_key_fires_registered_callback_directly(self, mocker):
+        """A callback registered for "R" fires on the same rising edge as ``reset(pause=True)``,
+        rather than depending on the teleop session's own control-event propagation.
+        """
+        poller = _make_poller(mocker)
+        on_reset = mocker.MagicMock()
+        poller.add_callback("R", on_reset)
+        poller._teleop_device.last_step_result = {"keyboard_all_keys": _FakeOptionalTensorGroup(_bitmap_with([19]))}
+
+        poller.advance()
+
+        poller._teleop_device.reset.assert_called_once_with(pause=True)
+        on_reset.assert_called_once()
+
     def test_arbitrary_callback_fires_on_rising_edge_only(self, mocker):
         poller = _make_poller(mocker)
         callback = mocker.MagicMock()

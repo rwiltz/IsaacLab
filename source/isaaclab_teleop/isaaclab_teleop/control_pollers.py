@@ -108,11 +108,14 @@ class SpaceMouseResetPoller:
     """Polls a spacemouse-plugin-backed pipeline's ``spacemouse_buttons`` output.
 
     Fires ``teleop_device.reset(pause=True)`` on the right button's rising edge, matching the
-    legacy Se2/Se3SpaceMouse's device-intrinsic reset binding.
+    legacy Se2/Se3SpaceMouse's device-intrinsic reset binding, plus an optional caller-supplied
+    ``on_reset`` callback fired directly (not through the teleop session's own control-event
+    propagation, which can lag a frame or more behind the physical button press).
     """
 
-    def __init__(self, teleop_device) -> None:
+    def __init__(self, teleop_device, on_reset: Callable[[], None] | None = None) -> None:
         self._teleop_device = teleop_device
+        self._on_reset = on_reset
         self._prev_bitmap: np.ndarray | None = None
 
     def advance(self) -> None:
@@ -127,6 +130,8 @@ class SpaceMouseResetPoller:
 
         if bitmap[_SPACEMOUSE_BUTTON_RIGHT] and not prev[_SPACEMOUSE_BUTTON_RIGHT]:
             self._teleop_device.reset(pause=True)
+            if self._on_reset is not None:
+                self._on_reset()
 
     def _read_bitmap(self) -> np.ndarray | None:
         result = self._teleop_device.last_step_result

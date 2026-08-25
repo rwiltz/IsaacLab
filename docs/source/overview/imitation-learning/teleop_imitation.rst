@@ -107,7 +107,7 @@ the environment by quitting the script with Ctrl+C.
 
 .. code:: bash
 
-   uv run --extra teleop isaaclab teleop run \
+   uv run --extra teleop --extra isaacsim isaaclab teleop run \
    --task IsaacContrib-Stack-Cube-Franka-IK-Rel \
    --viz kit \
    --num_envs 1 \
@@ -137,7 +137,7 @@ To use a SpaceMouse, simply change ``--teleop_device`` accordingly:
 
 .. code:: bash
 
-   uv run --extra teleop isaaclab teleop run \
+   uv run --extra teleop --extra isaacsim isaaclab teleop run \
    --task IsaacContrib-Stack-Cube-Franka-IK-Rel \
    --viz kit \
    --num_envs 1 \
@@ -192,7 +192,7 @@ variant of the task (``IsaacContrib-Stack-Cube-Franka-IK-Abs``):
 
 .. code:: bash
 
-   uv run --extra teleop isaaclab teleop run \
+   uv run --extra teleop --extra isaacsim isaaclab teleop run \
    --task IsaacContrib-Stack-Cube-Franka-IK-Abs \
    --viz kit \
    --xr
@@ -223,7 +223,7 @@ Select the tab that matches your input device:
 
       .. code:: bash
 
-         uv run --extra teleop isaaclab teleop record \
+         uv run --extra teleop --extra isaacsim isaaclab teleop record \
          --task IsaacContrib-Stack-Cube-Franka-IK-Rel \
          --viz kit \
          --dataset_file ./datasets/dataset.hdf5 \
@@ -234,7 +234,7 @@ Select the tab that matches your input device:
 
       .. code:: bash
 
-         uv run --extra teleop isaaclab teleop record \
+         uv run --extra teleop --extra isaacsim isaaclab teleop record \
          --task IsaacContrib-Stack-Cube-Franka-IK-Rel \
          --viz kit \
          --dataset_file ./datasets/dataset.hdf5 \
@@ -249,7 +249,7 @@ Select the tab that matches your input device:
 
       .. code:: bash
 
-         uv run --extra teleop isaaclab teleop record \
+         uv run --extra teleop --extra isaacsim isaaclab teleop record \
          --task IsaacContrib-Stack-Cube-Franka-IK-Abs \
          --viz kit \
          --dataset_file ./datasets/dataset.hdf5 \
@@ -277,7 +277,7 @@ You can replay the collected demonstrations by running:
 
 .. code:: bash
 
-   uv run --extra teleop isaaclab teleop replay \
+   uv run --extra teleop --extra isaacsim isaaclab teleop replay \
    --task IsaacContrib-Stack-Cube-Franka-IK-Rel \
    --viz kit \
    --num_envs 1 \
