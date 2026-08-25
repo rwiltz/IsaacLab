@@ -10,10 +10,10 @@ from isaaclab_newton.physics import MJWarpSolverCfg, NewtonCfg, NewtonCollisionP
 from isaaclab_physx.physics import PhysxCfg
 from isaaclab_teleop import IsaacTeleopCfg
 from isaaclab_teleop.keyboard import Se3KeyboardCfg
+from isaaclab_teleop.spacemouse import Se3SpaceMouseCfg
 
 from isaaclab.assets import AssetBaseCfg, RigidObjectCfg
 from isaaclab.devices.device_base import DevicesCfg
-from isaaclab.devices.spacemouse import Se3SpaceMouseCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg
 from isaaclab.envs.mdp.actions.rmpflow_actions_cfg import RMPFlowActionCfg
 from isaaclab.managers import EventTermCfg as EventTerm
@@ -263,10 +263,10 @@ def build_agibot_place_keyboard_pipeline():
 
     se3_cfg = KeyboardToSe3RelRetargeterConfig(pos_sensitivity=0.05, rot_sensitivity=0.05)
     se3 = KeyboardToSe3RelRetargeter(se3_cfg, name="se3")
-    connected_se3 = se3.connect({"keyboard": keyboard_source.output("keyboard")})
+    connected_se3 = se3.connect({"keyboard_all_keys": keyboard_source.output("keyboard_all_keys")})
 
     gripper = KeyboardGripperRetargeter(name="gripper")
-    connected_gripper = gripper.connect({"keyboard": keyboard_source.output("keyboard")})
+    connected_gripper = gripper.connect({"keyboard_all_keys": keyboard_source.output("keyboard_all_keys")})
 
     ee_delta_elements = ["dx", "dy", "dz", "drx", "dry", "drz"]
     reorderer = TensorReorderer(

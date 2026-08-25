@@ -5,10 +5,10 @@
 
 from isaaclab_teleop import IsaacTeleopCfg
 from isaaclab_teleop.keyboard import Se3KeyboardCfg
+from isaaclab_teleop.spacemouse import Se3SpaceMouseCfg
 
 from isaaclab.controllers.differential_ik_cfg import DifferentialIKControllerCfg
 from isaaclab.devices.device_base import DevicesCfg
-from isaaclab.devices.spacemouse import Se3SpaceMouseCfg
 from isaaclab.envs.mdp.actions.actions_cfg import (
     DifferentialInverseKinematicsActionCfg,
 )
@@ -52,10 +52,10 @@ def _build_franka_stack_keyboard_pipeline():
 
     se3_cfg = KeyboardToSe3RelRetargeterConfig(pos_sensitivity=0.05, rot_sensitivity=0.05)
     se3 = KeyboardToSe3RelRetargeter(se3_cfg, name="se3")
-    connected_se3 = se3.connect({"keyboard": keyboard_source.output("keyboard")})
+    connected_se3 = se3.connect({"keyboard_all_keys": keyboard_source.output("keyboard_all_keys")})
 
     gripper = KeyboardGripperRetargeter(name="gripper")
-    connected_gripper = gripper.connect({"keyboard": keyboard_source.output("keyboard")})
+    connected_gripper = gripper.connect({"keyboard_all_keys": keyboard_source.output("keyboard_all_keys")})
 
     ee_delta_elements = ["dx", "dy", "dz", "drx", "dry", "drz"]
     reorderer = TensorReorderer(

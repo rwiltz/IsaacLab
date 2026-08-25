@@ -7,13 +7,12 @@
 
 Currently, the following categories of devices are supported:
 
-* **Spacemouse**: 3D mouse with 6 degrees of freedom.
-* **Gamepad**: Gamepad with 2D two joysticks and buttons. Example: Xbox controller.
 * **OpenXR**: Uses hand tracking of index/thumb tip avg to drive the target pose. Gripping is done with pinching.
 * **Haply**: Haptic device (Inverse3 + VerseGrip) with position, orientation tracking and force feedback.
 
-Keyboard teleoperation (SE(2)/SE(3)) is provided by :mod:`isaaclab_teleop.keyboard`, built on
-the IsaacTeleop session API.
+Keyboard, gamepad, and spacemouse teleoperation (SE(2)/SE(3)) is provided by
+:mod:`isaaclab_teleop.keyboard`, :mod:`isaaclab_teleop.gamepad`, and :mod:`isaaclab_teleop.spacemouse`,
+built on the IsaacTeleop session API.
 
 All device interfaces inherit from the :class:`DeviceBase` class, which provides a
 common interface for all devices. The device interface reads the input data when

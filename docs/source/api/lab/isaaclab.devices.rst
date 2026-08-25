@@ -9,10 +9,6 @@
 
     DeviceBase
     RetargeterBase
-    Se2Gamepad
-    Se3Gamepad
-    Se2SpaceMouse
-    Se3SpaceMouse
     HaplyDevice
     OpenXRDevice
     ManusVive
@@ -38,36 +34,6 @@ Retargeter Base
 
 .. autoclass:: RetargeterBase
     :members:
-
-Game Pad
---------
-
-.. autoclass:: Se2Gamepad
-    :members:
-    :inherited-members:
-    :show-inheritance:
-    :noindex:
-
-.. autoclass:: Se3Gamepad
-    :members:
-    :inherited-members:
-    :show-inheritance:
-    :noindex:
-
-Space Mouse
------------
-
-.. autoclass:: Se2SpaceMouse
-    :members:
-    :inherited-members:
-    :show-inheritance:
-    :noindex:
-
-.. autoclass:: Se3SpaceMouse
-    :members:
-    :inherited-members:
-    :show-inheritance:
-    :noindex:
 
 Haply
 -----
@@ -137,10 +103,6 @@ The following classes are part of the public :mod:`isaaclab.devices` API.
    DevicesCfg
    HaplyDeviceCfg
    RetargeterCfg
-   Se2GamepadCfg
-   Se2SpaceMouseCfg
-   Se3GamepadCfg
-   Se3SpaceMouseCfg
 
 .. autoclass:: DeviceCfg
    :show-inheritance:
@@ -152,16 +114,4 @@ The following classes are part of the public :mod:`isaaclab.devices` API.
    :show-inheritance:
 
 .. autoclass:: RetargeterCfg
-   :show-inheritance:
-
-.. autoclass:: Se2GamepadCfg
-   :show-inheritance:
-
-.. autoclass:: Se2SpaceMouseCfg
-   :show-inheritance:
-
-.. autoclass:: Se3GamepadCfg
-   :show-inheritance:
-
-.. autoclass:: Se3SpaceMouseCfg
    :show-inheritance:

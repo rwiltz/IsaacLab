@@ -81,8 +81,8 @@ import gymnasium as gym
 import numpy as np
 import torch
 from isaaclab_teleop.keyboard import Se3Keyboard, Se3KeyboardCfg
+from isaaclab_teleop.spacemouse import Se3SpaceMouse, Se3SpaceMouseCfg
 
-from isaaclab.devices import Se3SpaceMouse, Se3SpaceMouseCfg
 from isaaclab.envs import ManagerBasedRLMimicEnv
 from isaaclab.envs.mdp.recorders.recorders_cfg import ActionStateRecorderManagerCfg
 from isaaclab.managers import DatasetExportMode, RecorderTerm, RecorderTermCfg

@@ -7,10 +7,6 @@ __all__ = [
     "DeviceBase",
     "DeviceCfg",
     "DevicesCfg",
-    "Se2Gamepad",
-    "Se2GamepadCfg",
-    "Se3Gamepad",
-    "Se3GamepadCfg",
     "HaplyDevice",
     "HaplyDeviceCfg",
     "ManusVive",
@@ -19,17 +15,11 @@ __all__ = [
     "OpenXRDeviceCfg",
     "RetargeterBase",
     "RetargeterCfg",
-    "Se2SpaceMouse",
-    "Se2SpaceMouseCfg",
-    "Se3SpaceMouse",
-    "Se3SpaceMouseCfg",
     "create_teleop_device",
 ]
 
 from .device_base import DeviceBase, DeviceCfg, DevicesCfg
-from .gamepad import Se2Gamepad, Se2GamepadCfg, Se3Gamepad, Se3GamepadCfg
 from .haply import HaplyDevice, HaplyDeviceCfg
 from .openxr import ManusVive, ManusViveCfg, OpenXRDevice, OpenXRDeviceCfg
 from .retargeter_base import RetargeterBase, RetargeterCfg
-from .spacemouse import Se2SpaceMouse, Se2SpaceMouseCfg, Se3SpaceMouse, Se3SpaceMouseCfg
 from .teleop_device_factory import create_teleop_device

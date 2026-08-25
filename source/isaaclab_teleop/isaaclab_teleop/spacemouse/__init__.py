@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Spacemouse device for SE(2) and SE(3) control."""
+"""SpaceMouse device for SE(2) and SE(3) control."""
 
 from isaaclab.utils.module import lazy_export
 

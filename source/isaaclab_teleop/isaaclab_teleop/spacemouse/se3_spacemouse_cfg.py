@@ -9,9 +9,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from isaaclab.devices.device_base import DeviceCfg
 from isaaclab.utils.configclass import configclass
-
-from ..device_base import DeviceCfg
 
 if TYPE_CHECKING:
     from .se3_spacemouse import Se3SpaceMouse

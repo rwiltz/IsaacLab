@@ -11,10 +11,18 @@ isaaclab_teleop
 
     IsaacTeleopCfg
     IsaacTeleopDevice
+    Se2Gamepad
+    Se2GamepadCfg
     Se2Keyboard
     Se2KeyboardCfg
+    Se2SpaceMouse
+    Se2SpaceMouseCfg
+    Se3Gamepad
+    Se3GamepadCfg
     Se3Keyboard
     Se3KeyboardCfg
+    Se3SpaceMouse
+    Se3SpaceMouseCfg
     XrCameraFeedCfg
     XrCameraFeedLayoutCfg
     XrCameraFeedSession
@@ -83,6 +91,40 @@ Keyboard
     :show-inheritance:
 
 .. autoclass:: Se3KeyboardCfg
+    :members:
+
+Gamepad
+-------
+
+.. autoclass:: Se2Gamepad
+    :members:
+    :show-inheritance:
+
+.. autoclass:: Se2GamepadCfg
+    :members:
+
+.. autoclass:: Se3Gamepad
+    :members:
+    :show-inheritance:
+
+.. autoclass:: Se3GamepadCfg
+    :members:
+
+SpaceMouse
+----------
+
+.. autoclass:: Se2SpaceMouse
+    :members:
+    :show-inheritance:
+
+.. autoclass:: Se2SpaceMouseCfg
+    :members:
+
+.. autoclass:: Se3SpaceMouse
+    :members:
+    :show-inheritance:
+
+.. autoclass:: Se3SpaceMouseCfg
     :members:
 
 Haptic Feedback

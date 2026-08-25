@@ -15,10 +15,18 @@ __all__ = [
     "HapticFeedbackReceiver",
     "IsaacTeleopCfg",
     "IsaacTeleopDevice",
+    "Se2Gamepad",
+    "Se2GamepadCfg",
     "Se2Keyboard",
     "Se2KeyboardCfg",
+    "Se2SpaceMouse",
+    "Se2SpaceMouseCfg",
+    "Se3Gamepad",
+    "Se3GamepadCfg",
     "Se3Keyboard",
     "Se3KeyboardCfg",
+    "Se3SpaceMouse",
+    "Se3SpaceMouseCfg",
     "SupportsControlEvents",
     "SystemCheckItem",
     "SystemCheckResult",
@@ -54,8 +62,10 @@ from .isaac_teleop_cfg import (
     XrCameraFeedCfg,
     XrCameraFeedLayoutCfg,
 )
+from .gamepad import Se2Gamepad, Se2GamepadCfg, Se3Gamepad, Se3GamepadCfg
 from .isaac_teleop_device import IsaacTeleopDevice, create_isaac_teleop_device
 from .keyboard import Se2Keyboard, Se2KeyboardCfg, Se3Keyboard, Se3KeyboardCfg
+from .spacemouse import Se2SpaceMouse, Se2SpaceMouseCfg, Se3SpaceMouse, Se3SpaceMouseCfg
 from .system_check import SystemCheckItem, SystemCheckResult, check_system_requirements
 from .xr_anchor_utils import XrAnchorSynchronizer
 from .xr_cfg import XrAnchorRotationMode, XrCfg, remove_camera_configs

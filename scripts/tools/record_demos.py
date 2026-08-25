@@ -177,10 +177,10 @@ from isaaclab_physx.renderers.isaac_rtx_renderer_utils import (
     apply_isaac_rtx_global_settings,
 )
 from isaaclab_teleop.keyboard import Se3Keyboard, Se3KeyboardCfg
+from isaaclab_teleop.spacemouse import Se3SpaceMouse, Se3SpaceMouseCfg
 
 import omni.ui as ui
 
-from isaaclab.devices import Se3SpaceMouse, Se3SpaceMouseCfg
 from isaaclab.devices.openxr import remove_camera_configs
 from isaaclab.devices.teleop_device_factory import create_teleop_device
 from isaaclab.envs import DirectRLEnvCfg, ManagerBasedRLEnvCfg
