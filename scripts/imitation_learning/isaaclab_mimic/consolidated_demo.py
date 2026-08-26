@@ -251,10 +251,15 @@ async def run_teleop_robot(
             should_reset_teleop_instance = False
             success_step_count = 0
 
-        # get keyboard command: a flattened [dx, dy, dz, drx, dry, drz, gripper_value] tensor
+        # get keyboard command: a flattened [dx, dy, dz, drx, dry, drz, gripper_value] tensor.
+        # ``None`` while the IsaacTeleop session is still starting up -- every env in this
+        # batch must submit exactly one action per round (see ``env_loop`` below), so fall back
+        # to a zero-motion, gripper-open action rather than skipping this round entirely.
         action = teleop_interface.advance()
         if control_poller is not None:
             control_poller.advance()
+        if action is None:
+            action = torch.tensor([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0])
         # split into delta pose and gripper command, converting to torch on the env's device
         delta_pose = action[:6].to(dtype=torch.float, device=env.device).repeat(1, 1)
         gripper_command = bool(action[6] > 0)
