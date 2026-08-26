@@ -15,9 +15,24 @@ the pattern established in test_target_frame_rebase.py.
 
 from __future__ import annotations
 
+import sys
+import types
+
 import numpy as np
 import pytest
 from isaaclab_teleop.control_pollers import KeyboardControlPoller
+
+# ``isaacteleop.plugins`` resolves an on-disk plugin search directory, which is irrelevant to
+# the pure config-shape assertions in TestSe2/Se3KeyboardTeleopCfg below and may not be present
+# in every install of isaacteleop (e.g. minimal/CI builds). Stub it once at import time, matching
+# the pattern established in test_gamepad_constructors.py.
+if "isaacteleop.plugins" not in sys.modules:
+    _fake_plugins = types.ModuleType("isaacteleop.plugins")
+    _fake_plugins.plugin_search_path = lambda: "/dummy/plugin/path"
+    sys.modules["isaacteleop.plugins"] = _fake_plugins
+
+from isaaclab_teleop.keyboard.se2_keyboard import se2_keyboard_teleop_cfg  # noqa: E402
+from isaaclab_teleop.keyboard.se3_keyboard import se3_keyboard_teleop_cfg  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Fakes
@@ -135,3 +150,42 @@ class TestPhysicalControlKeys:
         poller.advance()  # should not raise
 
         poller._teleop_device.request_start.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# se2_keyboard_teleop_cfg / se3_keyboard_teleop_cfg: pure config-shape checks
+# ---------------------------------------------------------------------------
+
+
+class TestSe3KeyboardTeleopCfg:
+    def test_defaults(self):
+        cfg = se3_keyboard_teleop_cfg()
+
+        assert cfg.sim_device == "cpu"
+        assert cfg.teleoperation_active_default is True
+        assert cfg.app_name == "IsaacLabKeyboardSe3"
+        assert len(cfg.plugins) == 1
+        assert cfg.plugins[0].plugin_name == "keyboard"
+        assert callable(cfg.pipeline_builder)
+
+    def test_custom_sim_device(self):
+        cfg = se3_keyboard_teleop_cfg(sim_device="cuda:0")
+
+        assert cfg.sim_device == "cuda:0"
+
+
+class TestSe2KeyboardTeleopCfg:
+    def test_defaults(self):
+        cfg = se2_keyboard_teleop_cfg()
+
+        assert cfg.sim_device == "cpu"
+        assert cfg.teleoperation_active_default is True
+        assert cfg.app_name == "IsaacLabKeyboardSe2"
+        assert len(cfg.plugins) == 1
+        assert cfg.plugins[0].plugin_name == "keyboard"
+        assert callable(cfg.pipeline_builder)
+
+    def test_custom_sim_device(self):
+        cfg = se2_keyboard_teleop_cfg(sim_device="cuda:0")
+
+        assert cfg.sim_device == "cuda:0"

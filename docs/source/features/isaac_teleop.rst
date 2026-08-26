@@ -726,13 +726,17 @@ These environments use the Isaac Teleop XR pipeline with motion controllers or h
    ideal for tasks that need a gripper or simple hand mapping. **Hand tracking** captures 26
    wrist and finger joints per hand, required for dexterous retargeting to complex robot hands.
 
-Keyboard and SpaceMouse Environments
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Keyboard, SpaceMouse, and Gamepad Environments
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. note::
 
-   Keyboard and SpaceMouse teleoperation uses the legacy native Isaac Lab teleop stack
-   (``isaaclab.devices``), not Isaac Teleop. These environments do not require an XR headset.
+   Keyboard, SpaceMouse, and Gamepad teleoperation run through Isaac Teleop like every other
+   input device, driven by a keyboard-, spacemouse-, or gamepad-plugin-backed
+   :class:`~isaaclab_teleop.IsaacTeleopDevice` pipeline instead of an XR headset -- see
+   :func:`~isaaclab_teleop.se3_keyboard_teleop_cfg`, :func:`~isaaclab_teleop.se3_spacemouse_teleop_cfg`,
+   and :func:`~isaaclab_teleop.se3_gamepad_teleop_cfg`. These environments do not require an XR
+   headset.
 
 The device button layouts below apply to all environments in this section. Per-environment
 differences (gripper enabled/disabled, sensitivity) are noted in the environment table that
@@ -768,9 +772,15 @@ follows.
    * - Gripper toggle
      - ``K``
      - Open / close gripper or suction (disabled in Reach envs).
+   * - Start/resume teleoperation
+     - ``B``
+     - Resume after a pause.
+   * - Pause teleoperation
+     - ``P``
+     - Pause without resetting.
    * - Reset
-     - ``L``
-     - Clear accumulated delta pose and gripper state.
+     - ``R``
+     - Reset the environment.
 
 **SpaceMouse**
 
@@ -792,7 +802,7 @@ follows.
      - Open / close gripper or suction (disabled in Reach envs).
    * - Reset
      - Right button
-     - Clear accumulated delta pose and gripper state.
+     - Reset the environment.
 
 **Gamepad** (Reach environments only)
 
@@ -1596,9 +1606,10 @@ uses ``create_isaac_teleop_device()`` -- no ``--teleop_device`` flag is needed:
              --visualizer kit \
              --xr
 
-Some environments use the legacy ``teleop_devices`` configuration instead of ``isaac_teleop``
-(e.g. the Galbot RmpFlow relative-mode tasks). For these, pass ``--teleop_device`` to select
-the input device:
+Pass ``--teleop_device`` to select a built-in keyboard or spacemouse pipeline instead of (or
+when there is no) environment-declared ``isaac_teleop`` pipeline -- for example, the Galbot
+RmpFlow relative-mode tasks. Unlike ``isaaclab teleop run`` (``teleop_se3_agent.py``),
+``record_demos.py`` does not support ``--teleop_device gamepad``:
 
 .. tab-set::
 
@@ -1622,11 +1633,11 @@ the input device:
 
 The workflow is:
 
-#. Configure your environment with ``IsaacTeleopCfg`` (see :ref:`isaac-teleop-env-config`)
-   or ``teleop_devices`` for legacy devices (keyboard, spacemouse).
+#. Configure your environment with ``IsaacTeleopCfg`` (see :ref:`isaac-teleop-env-config`), or
+   rely on ``--teleop_device`` to select a built-in keyboard or spacemouse pipeline.
 #. Run ``record_demos.py`` with the task name.
 #. For XR tasks: start AR, connect your XR device, and teleoperate.
-   For legacy tasks: use the configured input device directly.
+   For keyboard/spacemouse: use the input device directly.
 #. Demonstrations are recorded to HDF5 files.
 #. Use the recorded data with Isaac Lab Mimic or other imitation learning frameworks.
 

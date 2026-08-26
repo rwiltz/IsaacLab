@@ -43,6 +43,7 @@ __all__ = [
 from .camera_feed import XrCameraFeedSession
 from .control_events import TELEOP_CONTROL_CHANNEL_UUID, ControlEvents, SupportsControlEvents, poll_control_events
 from .control_pollers import KeyboardControlPoller, SpaceMouseResetPoller
+from .gamepad import se2_gamepad_teleop_cfg, se3_gamepad_teleop_cfg
 from .haptic_feedback import (
     ControllerHapticFeedbackCfg,
     GloveHapticFeedbackCfg,
@@ -59,7 +60,6 @@ from .isaac_teleop_cfg import (
     XrCameraFeedCfg,
     XrCameraFeedLayoutCfg,
 )
-from .gamepad import se2_gamepad_teleop_cfg, se3_gamepad_teleop_cfg
 from .isaac_teleop_device import IsaacTeleopDevice, create_isaac_teleop_device
 from .keyboard import se2_keyboard_teleop_cfg, se3_keyboard_teleop_cfg
 from .spacemouse import se2_spacemouse_teleop_cfg, se3_spacemouse_teleop_cfg

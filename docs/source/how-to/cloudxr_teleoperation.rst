@@ -274,6 +274,22 @@ hand joints and RGB axes at tracked controller aim poses. See
    will appear to hang — check your terminal output if Isaac Sim does not start within a
    few seconds.
 
+.. note::
+
+   **"A CloudXR runtime is already serving ... Stop it before starting a new one."**
+   A previous session that was force-killed (e.g. ``kill -9``, a crashed terminal, or a
+   ``timeout``-truncated process) can leave the CloudXR runtime running in the background even
+   after the teleop script exits. Find and stop it, then remove the stale session files it left
+   behind:
+
+   .. code-block:: bash
+
+      pkill -f "isaacteleop.cloudxr.runtime"
+      rm -f ~/.cloudxr/run/cloudxr.pid ~/.cloudxr/run/ipc_cloudxr ~/.cloudxr/run/runtime_started
+
+   A normal (non-forced) exit of the teleop script stops the runtime cleanly and does not
+   require this.
+
 .. tip::
 
    The ``IsaacContrib-PickPlace-Locomanipulation-G1-Abs`` task above uses **motion

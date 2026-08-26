@@ -251,12 +251,13 @@ async def run_teleop_robot(
             should_reset_teleop_instance = False
             success_step_count = 0
 
-        # get keyboard command
-        delta_pose, gripper_command = teleop_interface.advance()
+        # get keyboard command: a flattened [dx, dy, dz, drx, dry, drz, gripper_value] tensor
+        action = teleop_interface.advance()
         if control_poller is not None:
             control_poller.advance()
-        # convert to torch
-        delta_pose = torch.tensor(delta_pose, dtype=torch.float, device=env.device).repeat(1, 1)
+        # split into delta pose and gripper command, converting to torch on the env's device
+        delta_pose = action[:6].to(dtype=torch.float, device=env.device).repeat(1, 1)
+        gripper_command = bool(action[6] > 0)
         # compute actions based on environment
         teleop_action = pre_process_actions(delta_pose, gripper_command)
 

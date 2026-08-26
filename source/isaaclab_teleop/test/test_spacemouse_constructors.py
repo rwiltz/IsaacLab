@@ -15,8 +15,23 @@ established in test_keyboard_constructors.py.
 
 from __future__ import annotations
 
+import sys
+import types
+
 import numpy as np
 from isaaclab_teleop.control_pollers import SpaceMouseResetPoller
+
+# ``isaacteleop.plugins`` resolves an on-disk plugin search directory, which is irrelevant to
+# the pure config-shape assertions in TestSe2/Se3SpaceMouseTeleopCfg below and may not be
+# present in every install of isaacteleop (e.g. minimal/CI builds). Stub it once at import time,
+# matching the pattern established in test_gamepad_constructors.py.
+if "isaacteleop.plugins" not in sys.modules:
+    _fake_plugins = types.ModuleType("isaacteleop.plugins")
+    _fake_plugins.plugin_search_path = lambda: "/dummy/plugin/path"
+    sys.modules["isaacteleop.plugins"] = _fake_plugins
+
+from isaaclab_teleop.spacemouse.se2_spacemouse import se2_spacemouse_teleop_cfg  # noqa: E402
+from isaaclab_teleop.spacemouse.se3_spacemouse import se3_spacemouse_teleop_cfg  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Fakes
@@ -118,3 +133,42 @@ class TestPhysicalRightButtonReset:
         poller.advance()
 
         assert poller._teleop_device.reset.call_count == 2
+
+
+# ---------------------------------------------------------------------------
+# se2_spacemouse_teleop_cfg / se3_spacemouse_teleop_cfg: pure config-shape checks
+# ---------------------------------------------------------------------------
+
+
+class TestSe3SpaceMouseTeleopCfg:
+    def test_defaults(self):
+        cfg = se3_spacemouse_teleop_cfg()
+
+        assert cfg.sim_device == "cpu"
+        assert cfg.teleoperation_active_default is True
+        assert cfg.app_name == "IsaacLabSpaceMouseSe3"
+        assert len(cfg.plugins) == 1
+        assert cfg.plugins[0].plugin_name == "spacemouse"
+        assert callable(cfg.pipeline_builder)
+
+    def test_custom_sim_device(self):
+        cfg = se3_spacemouse_teleop_cfg(sim_device="cuda:0")
+
+        assert cfg.sim_device == "cuda:0"
+
+
+class TestSe2SpaceMouseTeleopCfg:
+    def test_defaults(self):
+        cfg = se2_spacemouse_teleop_cfg()
+
+        assert cfg.sim_device == "cpu"
+        assert cfg.teleoperation_active_default is True
+        assert cfg.app_name == "IsaacLabSpaceMouseSe2"
+        assert len(cfg.plugins) == 1
+        assert cfg.plugins[0].plugin_name == "spacemouse"
+        assert callable(cfg.pipeline_builder)
+
+    def test_custom_sim_device(self):
+        cfg = se2_spacemouse_teleop_cfg(sim_device="cuda:0")
+
+        assert cfg.sim_device == "cuda:0"

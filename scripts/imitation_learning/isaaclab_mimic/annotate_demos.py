@@ -374,14 +374,16 @@ def replay_episode(
             first_action = False
         else:
             while is_paused or skip_episode:
-                keyboard_interface.advance()
-                keyboard_control_poller.advance()
+                if keyboard_interface is not None:
+                    keyboard_interface.advance()
+                    keyboard_control_poller.advance()
                 env.sim.render()
                 if skip_episode:
                     return False
                 continue
-        keyboard_interface.advance()
-        keyboard_control_poller.advance()
+        if keyboard_interface is not None:
+            keyboard_interface.advance()
+            keyboard_control_poller.advance()
         action_tensor = torch.Tensor(action).reshape([1, action.shape[0]])
         env.step(torch.Tensor(action_tensor))
     if success_term is not None:
