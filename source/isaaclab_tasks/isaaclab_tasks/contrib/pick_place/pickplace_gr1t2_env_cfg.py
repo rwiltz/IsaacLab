@@ -369,6 +369,17 @@ def _gr1t2_robot_spawn() -> UsdFileCfg:
 # Hand joints that carry ``PhysxMimicJointAPI:rotZ`` in the GR1T2 asset.
 _GR1T2_MIMIC_SCHEMA = "PhysxMimicJointAPI:rotZ"
 
+# Explicit finger drive gains for MJWarp.
+#
+# ``GR1T2_HIGH_PD_CFG`` leaves the hands' ``stiffness``/``damping``/``armature`` as ``None``,
+# i.e. "use whatever the USD authors". PhysX drives them fine that way -- a moving finger
+# target settles at 1-4 rad/s. Newton does not: the same target NaNs the whole articulation on
+# the very first step. Author the gains explicitly instead, in the range Newton's own
+# dexterous-hand example uses.
+_NEWTON_HAND_STIFFNESS = 50.0
+_NEWTON_HAND_DAMPING = 5.0
+_NEWTON_HAND_ARMATURE = 0.01
+
 
 def _spawn_gr1t2_for_mjwarp(
     prim_path: str,
@@ -449,6 +460,13 @@ def _gr1t2_actuators():
     physx = {name: cfg.copy() for name, cfg in GR1T2_HIGH_PD_CFG.actuators.items()}
 
     newton = {name: cfg.copy() for name, cfg in GR1T2_HIGH_PD_CFG.actuators.items()}
+    for key, expr in (("right-hand", "R_.*"), ("left-hand", "L_.*")):
+        newton[key] = ImplicitActuatorCfg(
+            joint_names_expr=[expr],
+            stiffness=_NEWTON_HAND_STIFFNESS,
+            damping=_NEWTON_HAND_DAMPING,
+            armature=_NEWTON_HAND_ARMATURE,
+        )
     newton["posture"] = ImplicitActuatorCfg(
         joint_names_expr=["head_.*", ".*_hip_.*", ".*_knee_.*", ".*_ankle_.*"],
         stiffness=200.0,
