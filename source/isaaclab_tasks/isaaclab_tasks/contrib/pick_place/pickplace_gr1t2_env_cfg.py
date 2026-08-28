@@ -11,6 +11,7 @@ from isaaclab_physx.physics import PhysxCfg
 
 import isaaclab.envs.mdp as base_mdp
 import isaaclab.sim as sim_utils
+from isaaclab.actuators import ImplicitActuatorCfg
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
 from isaaclab.controllers.pink_ik import DampingTaskCfg, FrameTaskCfg, NullSpacePostureTaskCfg, PinkIKControllerCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg
@@ -355,12 +356,106 @@ def _gr1t2_robot_spawn() -> UsdFileCfg:
         The spawn configuration for the task's GR1T2 robot.
     """
     spawn = GR1T2_HIGH_PD_CFG.spawn.copy()
+    spawn.func = preset(default=GR1T2_HIGH_PD_CFG.spawn.func, newton_mjwarp=_spawn_gr1t2_for_mjwarp)
+    spawn.make_uninstanceable = preset(default=False, newton_mjwarp=True)
     spawn.rigid_props = preset(
         default=GR1T2_HIGH_PD_CFG.spawn.rigid_props,
         # The remaining PhysX damping and velocity-limit fields are not consumed by Newton.
         newton_mjwarp=sim_utils.MujocoRigidBodyPropertiesCfg(disable_gravity=True, gravcomp=1.0),
     )
     return spawn
+
+
+# Hand joints that carry ``PhysxMimicJointAPI:rotZ`` in the GR1T2 asset.
+_GR1T2_MIMIC_SCHEMA = "PhysxMimicJointAPI:rotZ"
+
+
+def _spawn_gr1t2_for_mjwarp(
+    prim_path: str,
+    cfg: UsdFileCfg,
+    translation: tuple[float, float, float] | None = None,
+    orientation: tuple[float, float, float, float] | None = None,
+    **kwargs,
+):
+    """Spawn GR1T2 without the hand mimic couplings, which MJWarp cannot hold steady.
+
+    Each hand couples five follower joints (the four ``*_intermediate_joint`` and
+    ``*_thumb_distal_joint``) to their proximal leader through ``PhysxMimicJointAPI``. Newton
+    lowers those to soft ``mjEQ_JOINT`` equalities, and the equalities ring: the followers
+    oscillate at tens of rad/s even while the robot holds a static pose, which throws any
+    object the fingers touch. PhysX holds the same joints to ~0.04 rad/s.
+
+    The coupling is redundant for this task. The DexPilot retargeter already emits a target
+    for all eleven joints of each hand, leader and follower alike, so the followers can simply
+    be position-driven like every other joint once the equality is gone.
+
+    Args:
+        prim_path: The prim path or regex pattern to spawn the robot at.
+        cfg: The spawner configuration.
+        translation: Optional translation applied to the spawned prim.
+        orientation: Optional ``(x, y, z, w)`` orientation applied to the spawned prim.
+        **kwargs: Forwarded to :func:`~isaaclab.sim.spawn_from_usd`.
+
+    Returns:
+        The spawned source prim.
+    """
+    from pxr import Usd  # noqa: PLC0415
+
+    prim = sim_utils.spawn_from_usd(prim_path, cfg, translation, orientation, **kwargs)
+
+    stage = sim_utils.get_current_stage()
+    removed = 0
+    for root_path in sim_utils.find_matching_prim_paths(prim_path):
+        root = stage.GetPrimAtPath(root_path)
+        if not root.IsValid():
+            continue
+        for joint_prim in Usd.PrimRange(root, Usd.TraverseInstanceProxies()):
+            if _GR1T2_MIMIC_SCHEMA not in joint_prim.GetAppliedSchemas():
+                continue
+            if joint_prim.RemoveAppliedSchema(_GR1T2_MIMIC_SCHEMA):
+                removed += 1
+    if removed == 0:
+        raise RuntimeError(
+            f"Expected GR1T2 hand joints to carry '{_GR1T2_MIMIC_SCHEMA}' but removed none. The asset's"
+            " mimic authoring changed; re-check the hand coupling before running on Newton."
+        )
+    print(f"[INFO]: Removed {removed} '{_GR1T2_MIMIC_SCHEMA}' hand mimic couplings for the Newton backend.")
+    return prim
+
+
+def _gr1t2_actuators():
+    """Build the task's actuator set, adapting the hands and posture joints for MJWarp.
+
+    Two things differ under Newton:
+
+    * **Mimic followers must not be driven.** Newton lowers GR1T2's ten hand mimic couplings
+      to ``mjEQ_JOINT`` equality constraints, but ``GR1T2_HIGH_PD_CFG`` drives every ``R_.*`` /
+      ``L_.*`` joint, so the follower joints are position-driven *and* constrained. The two
+      fight and the fingers oscillate at tens of rad/s even while holding a static pose. Drive
+      only the leader (proximal) joints and leave the followers passive, mirroring the
+      ``panda_finger2_passive`` group used by the Newton-validated Franka lift task.
+    * **Undriven joints need damping.** The config actuates 39 of 54 joints, leaving the legs
+      and head free. PhysX never excites them because gravity is disabled, but under MJWarp
+      they pick up energy and spin (``head_yaw_joint`` reaches ~47 rad/s). The robot is
+      fixed-base here and these joints only have to hold their default pose, so give them a
+      modest posture drive.
+
+    The actuator configs are copied so the overrides stay local to this task and do not leak
+    into the shared :data:`GR1T2_HIGH_PD_CFG`.
+
+    Returns:
+        A preset selecting the PhysX or MJWarp actuator set.
+    """
+    physx = {name: cfg.copy() for name, cfg in GR1T2_HIGH_PD_CFG.actuators.items()}
+
+    newton = {name: cfg.copy() for name, cfg in GR1T2_HIGH_PD_CFG.actuators.items()}
+    newton["posture"] = ImplicitActuatorCfg(
+        joint_names_expr=["head_.*", ".*_hip_.*", ".*_knee_.*", ".*_ankle_.*"],
+        stiffness=200.0,
+        damping=20.0,
+        armature=0.01,
+    )
+    return preset(default=physx, newton_mjwarp=newton)
 
 
 # World-space bounds of the packing table's authored collider, measured from the composed
@@ -431,6 +526,7 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
     robot: ArticulationCfg = GR1T2_HIGH_PD_CFG.replace(
         prim_path="{ENV_REGEX_NS}/Robot",
         spawn=_gr1t2_robot_spawn(),
+        actuators=_gr1t2_actuators(),
         init_state=ArticulationCfg.InitialStateCfg(
             pos=(0, 0, 0.93),
             rot=(0.0, 0.0, 0.7071, 0.7071),
