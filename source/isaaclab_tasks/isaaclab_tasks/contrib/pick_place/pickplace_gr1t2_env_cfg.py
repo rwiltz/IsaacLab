@@ -6,6 +6,9 @@
 import os
 import tempfile
 
+from isaaclab_newton.physics import MJWarpSolverCfg, NewtonCfg, NewtonCollisionPipelineCfg, NewtonShapeCfg
+from isaaclab_physx.physics import PhysxCfg
+
 import isaaclab.envs.mdp as base_mdp
 import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
@@ -17,11 +20,14 @@ from isaaclab.managers import ObservationGroupCfg as ObsGroup
 from isaaclab.managers import ObservationTermCfg as ObsTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
+from isaaclab.physics import PhysxAutoCfg
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sensors import ContactSensorCfg
 from isaaclab.sim.spawners.from_files.from_files_cfg import GroundPlaneCfg, UsdFileCfg
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR, ISAACLAB_NUCLEUS_DIR, retrieve_file_path
 from isaaclab.utils.configclass import configclass
+
+from isaaclab_tasks.utils import PresetCfg, preset
 
 from . import mdp
 
@@ -273,6 +279,76 @@ def _build_gr1t2_pickplace_pipeline():
 _STEERING_WHEEL_BODY = "{ENV_REGEX_NS}/Object/Geometry/sm_steeringwheel_a01_01"
 
 
+# Steering-wheel collision meshes that must keep their convex decomposition under MJWarp.
+# The rim is the tube the hands actually grasp and the spokes bound the gap the fingers wrap
+# through, so collapsing either into a single hull would fill the wheel and make it ungraspable.
+_STEERING_WHEEL_DECOMPOSED_MESHES = frozenset(
+    {
+        "sm_steeringwheel_a01_wheel_rim_01",
+        "sm_steeringwheel_a01_wheel_spokes_01",
+    }
+)
+
+
+def _spawn_steering_wheel_for_mjwarp(
+    prim_path: str,
+    cfg: UsdFileCfg,
+    translation: tuple[float, float, float] | None = None,
+    orientation: tuple[float, float, float, float] | None = None,
+    **kwargs,
+):
+    """Spawn the steering wheel with an MJWarp-compatible collision approximation.
+
+    Every collision mesh in the asset is authored as ``convexDecomposition``. MuJoCo derives
+    each convex piece's inertia from its volume and rejects the model outright when a piece is
+    degenerate (``mesh volume is too small``); the wheel's hub and quick-release parts decompose
+    into such slivers, which makes the MJWarp model fail to compile.
+
+    Collapsing every mesh to a single convex hull compiles but turns the wheel into a solid disc.
+    Instead only the non-graspable detail meshes are hulled, and the meshes in
+    :data:`_STEERING_WHEEL_DECOMPOSED_MESHES` keep their decomposition so the wheel stays
+    graspable. PhysX is unaffected: this spawner is only used by the ``newton_mjwarp`` preset.
+
+    Args:
+        prim_path: The prim path or regex pattern to spawn the asset at.
+        cfg: The spawner configuration.
+        translation: Optional translation applied to the spawned prim.
+        orientation: Optional ``(x, y, z, w)`` orientation applied to the spawned prim.
+        **kwargs: Forwarded to :func:`~isaaclab.sim.spawn_from_usd`.
+
+    Returns:
+        The spawned source prim.
+    """
+    from pxr import Usd, UsdGeom  # noqa: PLC0415
+
+    prim = sim_utils.spawn_from_usd(prim_path, cfg, translation, orientation, **kwargs)
+
+    stage = sim_utils.get_current_stage()
+    for root_path in sim_utils.find_matching_prim_paths(prim_path):
+        root = stage.GetPrimAtPath(root_path)
+        if not root.IsValid():
+            continue
+        for mesh_prim in Usd.PrimRange(root):
+            if not mesh_prim.IsA(UsdGeom.Mesh) or mesh_prim.GetName() in _STEERING_WHEEL_DECOMPOSED_MESHES:
+                continue
+            approximation = mesh_prim.GetAttribute("physics:approximation")
+            if approximation and approximation.Get() is not None:
+                approximation.Set("convexHull")
+    return prim
+
+
+def _steering_wheel_spawn(func=None) -> UsdFileCfg:
+    """Build the steering-wheel spawn, optionally overriding the spawner function."""
+    spawn = UsdFileCfg(
+        usd_path=f"{ISAACLAB_NUCLEUS_DIR}/Mimic/pick_place_task/pick_place_assets/steering_wheel.usd",
+        scale=(0.75, 0.75, 0.75),
+        rigid_props=sim_utils.RigidBodyPropertiesCfg(),
+    )
+    if func is not None:
+        spawn.func = func
+    return spawn
+
+
 @configclass
 class ObjectTableSceneCfg(InteractiveSceneCfg):
     """Configuration for the GR1T2 Pick Place Base Scene."""
@@ -290,10 +366,9 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
     object = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Object",
         init_state=RigidObjectCfg.InitialStateCfg(pos=[-0.45, 0.45, 0.9996], rot=[0.0, 0.0, 0.0, 1.0]),
-        spawn=UsdFileCfg(
-            usd_path=f"{ISAACLAB_NUCLEUS_DIR}/Mimic/pick_place_task/pick_place_assets/steering_wheel.usd",
-            scale=(0.75, 0.75, 0.75),
-            rigid_props=sim_utils.RigidBodyPropertiesCfg(),
+        spawn=preset(
+            default=_steering_wheel_spawn(),
+            newton_mjwarp=_steering_wheel_spawn(func=_spawn_steering_wheel_for_mjwarp),
         ),
     )
 
@@ -580,6 +655,44 @@ class EventCfg:
 
 
 @configclass
+class PhysicsCfg(PresetCfg):
+    """Physics backend presets for the GR1T2 pick-place task.
+
+    ``default`` keeps the bare :class:`~isaaclab_physx.physics.PhysxCfg` this task ran with
+    before presets were exposed, so PhysX behavior is unchanged.
+
+    The ``newton_mjwarp`` variant targets a two-armed humanoid with articulated hands: the
+    contact budget is raised well above the single-arm manipulation tasks because both
+    six-finger hands can contact the object and the table at once, and the elliptic friction
+    cone with a high ``impratio`` is what keeps fingertip grasps from slipping.
+    """
+
+    isaacsim_physx = PhysxCfg()
+    newton_mjwarp = NewtonCfg(
+        solver_cfg=MJWarpSolverCfg(
+            solver="newton",
+            integrator="implicitfast",
+            njmax=800,
+            nconmax=600,
+            impratio=10.0,
+            cone="elliptic",
+            update_data_interval=2,
+            iterations=100,
+            ls_iterations=15,
+            ls_parallel=False,
+            use_mujoco_contacts=False,
+            ccd_iterations=35,
+        ),
+        collision_cfg=NewtonCollisionPipelineCfg(),
+        default_shape_cfg=NewtonShapeCfg(),
+        num_substeps=2,
+        debug_mode=False,
+    )
+    physx = PhysxAutoCfg(isaacsim_physx=isaacsim_physx)
+    default = isaacsim_physx
+
+
+@configclass
 class PickPlaceGR1T2EnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the GR1T2 environment."""
 
@@ -650,6 +763,7 @@ class PickPlaceGR1T2EnvCfg(ManagerBasedRLEnvCfg):
         # simulation settings
         self.sim.dt = 1 / 120  # 120Hz
         self.sim.render_interval = 2
+        self.sim.physics = PhysicsCfg()
         self.num_rerenders_on_reset = 3
 
         # Defer USD→URDF conversion to controller initialization (requires Isaac Sim at runtime).
