@@ -376,9 +376,16 @@ _GR1T2_MIMIC_SCHEMA = "PhysxMimicJointAPI:rotZ"
 # target settles at 1-4 rad/s. Newton does not: the same target NaNs the whole articulation on
 # the very first step. Author the gains explicitly instead, in the range Newton's own
 # dexterous-hand example uses.
+#
+# The damping is high relative to the stiffness on purpose. Several finger joints only travel
+# in one direction (``R_thumb_proximal_yaw_joint`` is limited to ``[-1.74, 0]``, the proximal
+# joints to ``[-1.57, 0]``), so a retargeted target regularly pushes them into a hard stop.
+# PhysX rests quietly there -- the joint sits at the limit at 0.04 rad/s -- but Newton chatters,
+# reaching 1.6 to 5.0 rad/s, which shows up as a finger that looks stuck and vibrates. The extra
+# damping absorbs the stop instead of ringing against it.
 _NEWTON_HAND_STIFFNESS = 50.0
-_NEWTON_HAND_DAMPING = 5.0
-_NEWTON_HAND_ARMATURE = 0.01
+_NEWTON_HAND_DAMPING = 25.0
+_NEWTON_HAND_ARMATURE = 0.02
 
 
 def _spawn_gr1t2_for_mjwarp(
