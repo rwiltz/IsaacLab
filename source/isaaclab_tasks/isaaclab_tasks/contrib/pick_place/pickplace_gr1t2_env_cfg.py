@@ -356,8 +356,6 @@ def _gr1t2_robot_spawn() -> UsdFileCfg:
         The spawn configuration for the task's GR1T2 robot.
     """
     spawn = GR1T2_HIGH_PD_CFG.spawn.copy()
-    spawn.func = preset(default=GR1T2_HIGH_PD_CFG.spawn.func, newton_mjwarp=_spawn_gr1t2_for_mjwarp)
-    spawn.make_uninstanceable = preset(default=False, newton_mjwarp=True)
     spawn.rigid_props = preset(
         default=GR1T2_HIGH_PD_CFG.spawn.rigid_props,
         # The remaining PhysX damping and velocity-limit fields are not consumed by Newton.
@@ -365,9 +363,6 @@ def _gr1t2_robot_spawn() -> UsdFileCfg:
     )
     return spawn
 
-
-# Hand joints that carry ``PhysxMimicJointAPI:rotZ`` in the GR1T2 asset.
-_GR1T2_MIMIC_SCHEMA = "PhysxMimicJointAPI:rotZ"
 
 # Explicit finger drive gains for MJWarp.
 #
@@ -386,59 +381,6 @@ _GR1T2_MIMIC_SCHEMA = "PhysxMimicJointAPI:rotZ"
 _NEWTON_HAND_STIFFNESS = 50.0
 _NEWTON_HAND_DAMPING = 25.0
 _NEWTON_HAND_ARMATURE = 0.02
-
-
-def _spawn_gr1t2_for_mjwarp(
-    prim_path: str,
-    cfg: UsdFileCfg,
-    translation: tuple[float, float, float] | None = None,
-    orientation: tuple[float, float, float, float] | None = None,
-    **kwargs,
-):
-    """Spawn GR1T2 without the hand mimic couplings, which MJWarp cannot hold steady.
-
-    Each hand couples five follower joints (the four ``*_intermediate_joint`` and
-    ``*_thumb_distal_joint``) to their proximal leader through ``PhysxMimicJointAPI``. Newton
-    lowers those to soft ``mjEQ_JOINT`` equalities, and the equalities ring: the followers
-    oscillate at tens of rad/s even while the robot holds a static pose, which throws any
-    object the fingers touch. PhysX holds the same joints to ~0.04 rad/s.
-
-    The coupling is redundant for this task. The DexPilot retargeter already emits a target
-    for all eleven joints of each hand, leader and follower alike, so the followers can simply
-    be position-driven like every other joint once the equality is gone.
-
-    Args:
-        prim_path: The prim path or regex pattern to spawn the robot at.
-        cfg: The spawner configuration.
-        translation: Optional translation applied to the spawned prim.
-        orientation: Optional ``(x, y, z, w)`` orientation applied to the spawned prim.
-        **kwargs: Forwarded to :func:`~isaaclab.sim.spawn_from_usd`.
-
-    Returns:
-        The spawned source prim.
-    """
-    from pxr import Usd  # noqa: PLC0415
-
-    prim = sim_utils.spawn_from_usd(prim_path, cfg, translation, orientation, **kwargs)
-
-    stage = sim_utils.get_current_stage()
-    removed = 0
-    for root_path in sim_utils.find_matching_prim_paths(prim_path):
-        root = stage.GetPrimAtPath(root_path)
-        if not root.IsValid():
-            continue
-        for joint_prim in Usd.PrimRange(root, Usd.TraverseInstanceProxies()):
-            if _GR1T2_MIMIC_SCHEMA not in joint_prim.GetAppliedSchemas():
-                continue
-            if joint_prim.RemoveAppliedSchema(_GR1T2_MIMIC_SCHEMA):
-                removed += 1
-    if removed == 0:
-        raise RuntimeError(
-            f"Expected GR1T2 hand joints to carry '{_GR1T2_MIMIC_SCHEMA}' but removed none. The asset's"
-            " mimic authoring changed; re-check the hand coupling before running on Newton."
-        )
-    print(f"[INFO]: Removed {removed} '{_GR1T2_MIMIC_SCHEMA}' hand mimic couplings for the Newton backend.")
-    return prim
 
 
 def _gr1t2_actuators():
