@@ -364,23 +364,25 @@ def _gr1t2_robot_spawn() -> UsdFileCfg:
     return spawn
 
 
-# Explicit finger drive gains for MJWarp.
+# Finger drive gains for MJWarp.
 #
-# ``GR1T2_HIGH_PD_CFG`` leaves the hands' ``stiffness``/``damping``/``armature`` as ``None``,
-# i.e. "use whatever the USD authors". PhysX drives them fine that way -- a moving finger
-# target settles at 1-4 rad/s. Newton does not: the same target NaNs the whole articulation on
-# the very first step. Author the gains explicitly instead, in the range Newton's own
-# dexterous-hand example uses.
+# ``GR1T2_HIGH_PD_CFG`` leaves the hands' stiffness and damping as ``None``, i.e. "use whatever
+# the USD authors". PhysX resolves that to 17184 / 558.48 and closes a finger onto its target in
+# five steps. Newton does not pick those drives up, and a moving finger target then sends the
+# articulation to NaN on the first step, so the gains have to be authored here.
 #
-# The damping is high relative to the stiffness on purpose. Several finger joints only travel
-# in one direction (``R_thumb_proximal_yaw_joint`` is limited to ``[-1.74, 0]``, the proximal
-# joints to ``[-1.57, 0]``), so a retargeted target regularly pushes them into a hard stop.
-# PhysX rests quietly there -- the joint sits at the limit at 0.04 rad/s -- but Newton chatters,
-# reaching 1.6 to 5.0 rad/s, which shows up as a finger that looks stuck and vibrates. The extra
-# damping absorbs the stop instead of ringing against it.
-_NEWTON_HAND_STIFFNESS = 50.0
-_NEWTON_HAND_DAMPING = 25.0
-_NEWTON_HAND_ARMATURE = 0.02
+# They cannot simply be copied across. MJWarp will not run 17184: it goes non-finite with 2, 8
+# and 16 substeps, with ``implicitfast`` and ``implicit``, and with the ``newton`` and ``cg``
+# solvers. 3000 is the value used here because it runs and still settles a joint onto its target
+# within a single step, so it stays as close to the authored stiffness as the backend allows.
+#
+# The mimic followers -- the ``*_intermediate_joint`` and ``*_thumb_distal_joint`` -- are
+# authored with zero stiffness and damping and are meant to be carried by the mimic coupling
+# rather than driven, so they get an explicit passive group.
+_HAND_DRIVE_STIFFNESS = 3000.0
+_HAND_DRIVE_DAMPING = 25.0
+_HAND_DRIVE_ARMATURE = 0.01
+_HAND_DRIVE_EFFORT = 2000.0
 
 
 def _gr1t2_actuators():
@@ -409,12 +411,19 @@ def _gr1t2_actuators():
     physx = {name: cfg.copy() for name, cfg in GR1T2_HIGH_PD_CFG.actuators.items()}
 
     newton = {name: cfg.copy() for name, cfg in GR1T2_HIGH_PD_CFG.actuators.items()}
-    for key, expr in (("right-hand", "R_.*"), ("left-hand", "L_.*")):
+    for side in ("R", "L"):
+        key = "right-hand" if side == "R" else "left-hand"
         newton[key] = ImplicitActuatorCfg(
-            joint_names_expr=[expr],
-            stiffness=_NEWTON_HAND_STIFFNESS,
-            damping=_NEWTON_HAND_DAMPING,
-            armature=_NEWTON_HAND_ARMATURE,
+            joint_names_expr=[f"{side}_.*_proximal_.*"],
+            stiffness=_HAND_DRIVE_STIFFNESS,
+            damping=_HAND_DRIVE_DAMPING,
+            armature=_HAND_DRIVE_ARMATURE,
+            joint_effort_limit=_HAND_DRIVE_EFFORT,
+        )
+        newton[f"{key}-passive"] = ImplicitActuatorCfg(
+            joint_names_expr=[f"{side}_.*_intermediate_joint", f"{side}_thumb_distal_joint"],
+            stiffness=0.0,
+            damping=0.0,
         )
     newton["posture"] = ImplicitActuatorCfg(
         joint_names_expr=["head_.*", ".*_hip_.*", ".*_knee_.*", ".*_ankle_.*"],
