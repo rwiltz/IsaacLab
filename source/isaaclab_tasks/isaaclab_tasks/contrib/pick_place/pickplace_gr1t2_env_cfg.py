@@ -337,6 +337,32 @@ def _spawn_steering_wheel_for_mjwarp(
     return prim
 
 
+def _gr1t2_robot_spawn() -> UsdFileCfg:
+    """Build the GR1T2 spawn with backend-appropriate gravity handling.
+
+    ``GR1T2_HIGH_PD_CFG`` disables gravity on every body, which is what lets this task actuate
+    only the trunk, arms and hands. Newton does not read ``physxRigidBody:disableGravity`` off a
+    rigid body -- it only honours the flag on the physics scene -- so under MJWarp the unactuated
+    legs and head would be pulled by gravity. ``mjc:gravcomp`` is the MuJoCo-solver equivalent, so
+    the ``newton_mjwarp`` preset asks for full per-body gravity compensation instead.
+
+    The spawn is copied so the per-backend ``rigid_props`` override stays local to this task and
+    does not leak into the shared :data:`GR1T2_HIGH_PD_CFG`. Only ``rigid_props`` is preset-backed:
+    ``__post_init__`` reads ``scene.robot.spawn.usd_path`` before presets are resolved, so ``spawn``
+    itself has to stay a concrete config.
+
+    Returns:
+        The spawn configuration for the task's GR1T2 robot.
+    """
+    spawn = GR1T2_HIGH_PD_CFG.spawn.copy()
+    spawn.rigid_props = preset(
+        default=GR1T2_HIGH_PD_CFG.spawn.rigid_props,
+        # The remaining PhysX damping and velocity-limit fields are not consumed by Newton.
+        newton_mjwarp=sim_utils.MujocoRigidBodyPropertiesCfg(disable_gravity=True, gravcomp=1.0),
+    )
+    return spawn
+
+
 def _steering_wheel_spawn(func=None) -> UsdFileCfg:
     """Build the steering-wheel spawn, optionally overriding the spawner function."""
     spawn = UsdFileCfg(
@@ -375,6 +401,7 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
     # Humanoid robot configured for pick-place manipulation tasks
     robot: ArticulationCfg = GR1T2_HIGH_PD_CFG.replace(
         prim_path="{ENV_REGEX_NS}/Robot",
+        spawn=_gr1t2_robot_spawn(),
         init_state=ArticulationCfg.InitialStateCfg(
             pos=(0, 0, 0.93),
             rot=(0.0, 0.0, 0.7071, 0.7071),
