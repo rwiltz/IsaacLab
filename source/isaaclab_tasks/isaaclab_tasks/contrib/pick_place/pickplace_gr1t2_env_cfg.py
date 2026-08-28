@@ -363,6 +363,13 @@ def _gr1t2_robot_spawn() -> UsdFileCfg:
     return spawn
 
 
+# World-space bounds of the packing table's authored collider, measured from the composed
+# stage (``.../SM_CratePacking_Table_A1/SM_HeavyDutyPackingTable_C02_01``). The table prim
+# sits at y = 0.55, so these are centred on that in the proxy below.
+_PACKING_TABLE_COLLIDER_SIZE = (2.4736, 0.762, 0.9941)
+_PACKING_TABLE_COLLIDER_POS = (0.0, 0.55, 0.49705)
+
+
 def _steering_wheel_spawn(func=None) -> UsdFileCfg:
     """Build the steering-wheel spawn, optionally overriding the spawner function."""
     spawn = UsdFileCfg(
@@ -386,6 +393,28 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
         spawn=UsdFileCfg(
             usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/PackingTable/packing_table.usd",
             rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
+        ),
+    )
+
+    # Static collision proxy for the tabletop, used by the Newton backend only.
+    #
+    # ``packing_table.usd`` authors its tabletop collider as a ``boundingCube``
+    # ``PhysicsCollisionAPI`` on an Xform rather than on mesh prims. PhysX resolves that and
+    # builds the collider; Newton emits no shape for it, so anything resting on the table
+    # falls straight through. This invisible box reproduces the same bounding volume.
+    #
+    # The box is always spawned, but its collider is only enabled under ``newton_mjwarp`` so
+    # PhysX keeps colliding solely with the asset's own (correctly imported) collider.
+    packing_table_collider = AssetBaseCfg(
+        prim_path="{ENV_REGEX_NS}/PackingTableCollider",
+        init_state=AssetBaseCfg.InitialStateCfg(pos=list(_PACKING_TABLE_COLLIDER_POS)),
+        spawn=sim_utils.CuboidCfg(
+            size=_PACKING_TABLE_COLLIDER_SIZE,
+            visible=False,
+            collision_props=preset(
+                default=sim_utils.CollisionPropertiesCfg(collision_enabled=False),
+                newton_mjwarp=sim_utils.CollisionPropertiesCfg(collision_enabled=True),
+            ),
         ),
     )
 
