@@ -791,8 +791,19 @@ class PhysicsCfg(PresetCfg):
 
     The ``newton_mjwarp`` variant targets a two-armed humanoid with articulated hands: the
     contact budget is raised well above the single-arm manipulation tasks because both
-    six-finger hands can contact the object and the table at once, and the elliptic friction
+    multi-finger hands can contact the object and the table at once, and the elliptic friction
     cone with a high ``impratio`` is what keeps fingertip grasps from slipping.
+
+    ``num_substeps`` and ``ccd_iterations`` follow Newton's own dexterous-hand example rather
+    than the parallel-gripper tasks. Closing a hand onto the steering wheel with the
+    gripper-oriented values threw the object at 2.2 m/s and shook the fingers at 6.2 rad/s;
+    with eight substeps and 50 CCD iterations the same grasp moves the object 2 mm and the
+    fingers settle to 0.01 rad/s.
+
+    The per-shape contact stiffness is deliberately left at Newton's default. Raising it to
+    2.5e5, which is the published remedy for grasp *drift*, made this scene markedly worse --
+    peak object speed 5.0 m/s and half a metre of travel -- because a stiffer contact ejects
+    harder on the first overlap.
     """
 
     isaacsim_physx = PhysxCfg()
@@ -809,11 +820,11 @@ class PhysicsCfg(PresetCfg):
             ls_iterations=15,
             ls_parallel=False,
             use_mujoco_contacts=False,
-            ccd_iterations=35,
+            ccd_iterations=50,
         ),
         collision_cfg=NewtonCollisionPipelineCfg(),
         default_shape_cfg=NewtonShapeCfg(),
-        num_substeps=2,
+        num_substeps=8,
         debug_mode=False,
     )
     physx = PhysxAutoCfg(isaacsim_physx=isaacsim_physx)
