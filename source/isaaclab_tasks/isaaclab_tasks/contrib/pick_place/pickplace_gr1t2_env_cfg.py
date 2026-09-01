@@ -373,14 +373,22 @@ def _gr1t2_robot_spawn() -> UsdFileCfg:
 #
 # They cannot simply be copied across. MJWarp will not run 17184: it goes non-finite with 2, 8
 # and 16 substeps, with ``implicitfast`` and ``implicit``, and with the ``newton`` and ``cg``
-# solvers. 3000 is the value used here because it runs and still settles a joint onto its target
-# within a single step, so it stays as close to the authored stiffness as the backend allows.
+# solvers.
+#
+# The value is chosen to reproduce PhysX's *approach*, not just to reach the target. Actions
+# arrive at 20 Hz (``decimation=6`` at 120 Hz) while the scene renders every second physics
+# step, so a drive stiff enough to snap onto its target within one step is rendered as a hold
+# followed by a jump -- the fingers visibly move in stairsteps. 3000 did exactly that. At 200
+# the joint approaches over roughly five steps, matching PhysX almost sample for sample
+# (-1.067 then -1.099, against PhysX's -1.047 then -1.098), and the motion reads as continuous.
+# Contact behaviour is unchanged or slightly better: closing on the steering wheel peaks at
+# 0.377 m/s rather than 0.436 m/s.
 #
 # The mimic followers -- the ``*_intermediate_joint`` and ``*_thumb_distal_joint`` -- are
 # authored with zero stiffness and damping and are meant to be carried by the mimic coupling
 # rather than driven, so they get an explicit passive group.
-_HAND_DRIVE_STIFFNESS = 3000.0
-_HAND_DRIVE_DAMPING = 25.0
+_HAND_DRIVE_STIFFNESS = 200.0
+_HAND_DRIVE_DAMPING = 6.0
 _HAND_DRIVE_ARMATURE = 0.01
 _HAND_DRIVE_EFFORT = 2000.0
 
