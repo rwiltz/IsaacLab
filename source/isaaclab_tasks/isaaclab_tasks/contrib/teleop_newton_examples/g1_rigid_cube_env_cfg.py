@@ -82,7 +82,8 @@ def cube_spawn() -> sim_utils.CuboidCfg:
     """
     return sim_utils.CuboidCfg(
         size=(CUBE_SIZE, CUBE_SIZE, CUBE_SIZE),
-        physics_material=sim_utils.RigidBodyMaterialCfg(static_friction=0.5, dynamic_friction=0.5),
+        # Matches the robot's hand material. At 0.5 the cube slips out of the grasp.
+        physics_material=sim_utils.RigidBodyMaterialCfg(static_friction=1.0, dynamic_friction=1.0),
         rigid_props=sim_utils.RigidBodyPropertiesCfg(
             solver_position_iteration_count=16,
             solver_velocity_iteration_count=0,
