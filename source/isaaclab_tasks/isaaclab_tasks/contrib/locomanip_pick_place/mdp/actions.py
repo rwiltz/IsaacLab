@@ -42,7 +42,10 @@ class AgileBasedLowerBodyAction(ActionTerm):
         self._env = env
 
         # Find joint ids for the lower body joints
-        joint_ids, self._joint_names = self._asset.find_joints(self.cfg.joint_names, as_proxy=True)
+        # ``preserve_order`` makes the configured joint order authoritative. Without it the
+        # lookup returns articulation order, which differs between PhysX and Newton, and the
+        # policy's outputs land on the wrong joints.
+        joint_ids, self._joint_names = self._asset.find_joints(self.cfg.joint_names, preserve_order=True, as_proxy=True)
         self._joint_ids = joint_ids.torch
 
         # Get the scale and offset from the configuration
@@ -108,7 +111,10 @@ class AgileBasedLowerBodyAction(ActionTerm):
         # Compose policy input using helper function
         policy_input = self._compose_policy_input(base_command, obs_tensor)
 
-        joint_actions = self._policy.forward(policy_input)
+        # Newton writes joint targets through Warp kernels, which reject a tensor that still
+        # requires grad.
+        with torch.no_grad():
+            joint_actions = self._policy.forward(policy_input)
 
         self._raw_actions[:] = joint_actions
 

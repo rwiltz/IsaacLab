@@ -1636,8 +1636,9 @@ class NewtonManager(PhysicsManager):
             cls._model.num_envs = cls._num_envs
 
         if cls._pending_extended_contact_attributes:
+            # Kept rather than cleared: a later model rebuild allocates a fresh Contacts object and
+            # has to re-request these, otherwise the sensors lose the attributes they were given.
             cls._model.request_contact_attributes(*cls._pending_extended_contact_attributes)
-            NewtonManager._pending_extended_contact_attributes = set()
 
         NewtonManager._state_0 = cls._model.state()
         NewtonManager._state_1 = cls._model.state()
@@ -3547,6 +3548,10 @@ class NewtonManager(PhysicsManager):
             raise ValueError("Only one of body_names_expr or shape_names_expr must be provided")
         if contact_partners_body_expr is not None and contact_partners_shape_expr is not None:
             raise ValueError("Only one of contact_partners_body_expr or contact_partners_shape_expr must be provided")
+
+        # Without this the Contacts object is allocated with no force array and the sensor raises
+        # "SensorContact requires a Contacts object with force allocated" on the first step.
+        cls.request_extended_contact_attribute("force")
 
         sensor_target = body_names_expr or shape_names_expr
         partner_filter = contact_partners_body_expr or contact_partners_shape_expr or "all bodies/shapes"

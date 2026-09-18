@@ -9,6 +9,46 @@ from isaaclab.managers import ObservationTermCfg as ObsTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.utils import configclass
 
+AGILE_POLICY_JOINT_NAMES: list[str] = [
+    "left_hip_pitch_joint",
+    "right_hip_pitch_joint",
+    "waist_yaw_joint",
+    "left_hip_roll_joint",
+    "right_hip_roll_joint",
+    "waist_roll_joint",
+    "left_hip_yaw_joint",
+    "right_hip_yaw_joint",
+    "waist_pitch_joint",
+    "left_knee_joint",
+    "right_knee_joint",
+    "left_shoulder_pitch_joint",
+    "right_shoulder_pitch_joint",
+    "left_ankle_pitch_joint",
+    "right_ankle_pitch_joint",
+    "left_shoulder_roll_joint",
+    "right_shoulder_roll_joint",
+    "left_ankle_roll_joint",
+    "right_ankle_roll_joint",
+    "left_shoulder_yaw_joint",
+    "right_shoulder_yaw_joint",
+    "left_elbow_joint",
+    "right_elbow_joint",
+    "left_wrist_roll_joint",
+    "right_wrist_roll_joint",
+    "left_wrist_pitch_joint",
+    "right_wrist_pitch_joint",
+    "left_wrist_yaw_joint",
+    "right_wrist_yaw_joint",
+]
+"""Joints the Agile locomotion policy observes, in the order it was trained on.
+
+Listed explicitly rather than matched by regex. A regex list resolves in articulation
+order, and the backends do not agree on it: PhysX enumerates breadth-first by tree depth
+while Newton enumerates each limb chain depth-first. A regex-resolved observation is
+therefore permuted under Newton and the policy diverges. This list reproduces the PhysX
+order, so with ``preserve_order=True`` both backends see the trained order.
+"""
+
 
 @configclass
 class AgileTeacherPolicyObservationsCfg(ObsGroup):
@@ -39,15 +79,8 @@ class AgileTeacherPolicyObservationsCfg(ObsGroup):
         params={
             "asset_cfg": SceneEntityCfg(
                 "robot",
-                joint_names=[
-                    ".*_shoulder_.*_joint",
-                    ".*_elbow_joint",
-                    ".*_wrist_.*_joint",
-                    ".*_hip_.*_joint",
-                    ".*_knee_joint",
-                    ".*_ankle_.*_joint",
-                    "waist_.*_joint",
-                ],
+                joint_names=AGILE_POLICY_JOINT_NAMES,
+                preserve_order=True,
             ),
         },
     )
@@ -58,15 +91,8 @@ class AgileTeacherPolicyObservationsCfg(ObsGroup):
         params={
             "asset_cfg": SceneEntityCfg(
                 "robot",
-                joint_names=[
-                    ".*_shoulder_.*_joint",
-                    ".*_elbow_joint",
-                    ".*_wrist_.*_joint",
-                    ".*_hip_.*_joint",
-                    ".*_knee_joint",
-                    ".*_ankle_.*_joint",
-                    "waist_.*_joint",
-                ],
+                joint_names=AGILE_POLICY_JOINT_NAMES,
+                preserve_order=True,
             ),
         },
     )
