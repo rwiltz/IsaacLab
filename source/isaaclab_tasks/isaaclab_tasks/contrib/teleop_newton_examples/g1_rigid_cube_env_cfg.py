@@ -69,8 +69,13 @@ ROBOT_CONTACT_MATERIAL = [
 CUBE_SIZE = 0.035
 """Edge length of the graspable cube [m]."""
 
-CUBE_MASS = 0.2
-"""Mass of the graspable cube [kg]."""
+CUBE_MASS = 0.05
+"""Mass of the graspable cube [kg].
+
+About 1200 kg/m^3 at this size, so a dense plastic. The ``Isaac-Lift-Franka`` primitive this is
+adapted from carries 0.2 kg, which at 3.5 cm implies roughly titanium and takes correspondingly
+more grip force to hold.
+"""
 
 
 def cube_spawn() -> sim_utils.CuboidCfg:
