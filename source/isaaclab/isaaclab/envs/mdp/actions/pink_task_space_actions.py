@@ -72,8 +72,17 @@ class PinkInverseKinematicsAction(ActionTerm):
         self._isaaclab_all_joint_ids = list(range(len(self._asset.data.joint_names)))
         self.cfg.controller.all_joint_names = self._asset.data.joint_names
 
-        # Resolve hand joints
-        self._hand_joint_ids, self._hand_joint_names = self._asset.find_joints(self.cfg.hand_joint_names)
+        # Resolve hand joints.
+        #
+        # The action tensor carries the hand targets in the order ``cfg.hand_joint_names``
+        # declares, so the resolved ids have to keep that order. Without ``preserve_order`` the ids
+        # come back in articulation order instead, and every hand target is applied to whichever
+        # joint the articulation happens to list in that slot. PhysX orders this robot's joints the
+        # same way the config lists them, so the mismatch is invisible there; Newton groups them
+        # per finger, so most hand joints end up driven by another joint's target.
+        self._hand_joint_ids, self._hand_joint_names = self._asset.find_joints(
+            self.cfg.hand_joint_names, preserve_order=True
+        )
 
         # Combine all joint information
         self._controlled_joint_ids = self._isaaclab_controlled_joint_ids + self._hand_joint_ids
