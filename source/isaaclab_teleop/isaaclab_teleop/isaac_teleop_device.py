@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -21,6 +21,8 @@ from .session_lifecycle import TeleopSessionLifecycle
 from .xr_anchor_manager import XrAnchorManager
 
 if TYPE_CHECKING:
+    from isaacteleop.retargeting_engine.deviceio_source_nodes import KeyEventSource
+
     from .haptic_feedback import HapticFeedbackCfg
     from .session_lifecycle import SupportsDLPack
     from .visualizers.controller_aim_visualizer import ControllerAimVisualizer
@@ -113,6 +115,7 @@ class IsaacTeleopDevice:
         mcap_replay_path: str | None = None,
         enable_debug_visualization: bool = False,
         haptic_cfg: HapticFeedbackCfg | None = None,
+        key_event_sources: Sequence[KeyEventSource] | None = None,
     ):
         """Initialize the Isaac Capture device.
 
@@ -149,6 +152,10 @@ class IsaacTeleopDevice:
                 the device renders per-hand output vectors pushed via
                 :meth:`send_haptic` on the configured device (controller, glove,
                 ...).  ``None`` disables haptics.
+            key_event_sources: Input surfaces (Isaac Capture ``KeyEventSource``
+                objects) that feed the pipeline's keyboards.  ``None`` (the
+                default) uses every running visualizer's
+                :attr:`~isaaclab.visualizers.BaseVisualizer.key_event_source`.
         """
         self._cfg = cfg
 
@@ -163,6 +170,7 @@ class IsaacTeleopDevice:
             mcap_replay_path=mcap_replay_path,
             enable_debug_visualization=enable_debug_visualization,
             haptic_cfg=haptic_cfg,
+            key_event_sources=key_event_sources,
         )
 
         self._prev_right_a_pressed = False
@@ -277,6 +285,30 @@ class IsaacTeleopDevice:
         default (no-op) :class:`ControlEvents`.
         """
         return self._session_lifecycle.last_control_events
+
+    @property
+    def last_step_result(self) -> dict | None:
+        """Full pipeline output from the most recent :meth:`advance`, or ``None``.
+
+        Contains at least ``"action"``, plus every other output the configured
+        ``pipeline_builder`` declares (see
+        :attr:`~isaaclab_teleop.IsaacTeleopCfg.pipeline_builder`) and the
+        right-controller entry. In pipelined retargeting mode the same result
+        can be returned on consecutive calls, so read discrete events (key
+        presses) through :meth:`drain_pressed_keys` instead.
+        ``None`` before the first successful step or when the session has not
+        started yet.
+        """
+        return self._session_lifecycle.last_step_result
+
+    def drain_pressed_keys(self) -> list[int]:
+        """Evdev codes of the keys pressed on the input surfaces since the last call, in order.
+
+        Read straight from the surfaces that feed the pipeline's keyboards (by default, every
+        running visualizer's key source), so each press is returned once whatever the retargeting
+        execution mode. Presses from before the session started or stopped are dropped.
+        """
+        return self._session_lifecycle.drain_pressed_keys()
 
     def add_callback(self, key: str, func: Callable) -> None:
         """Add a callback function for teleop commands.
@@ -559,6 +591,7 @@ def create_isaac_teleop_device(
     mcap_replay_path: str | None = None,
     enable_debug_visualization: bool = False,
     haptic_cfg: HapticFeedbackCfg | None = None,
+    key_event_sources: Sequence[KeyEventSource] | None = None,
 ) -> IsaacTeleopDevice:
     """Create an :class:`IsaacTeleopDevice` with required Omniverse extension setup.
 
@@ -612,6 +645,10 @@ def create_isaac_teleop_device(
             returned device implements
             :class:`~isaaclab_teleop.HapticFeedbackReceiver` and renders per-hand
             output vectors on the configured device (controller, glove, ...).
+        key_event_sources: Input surfaces that feed the pipeline's keyboards.
+            ``None`` (the default) uses every running visualizer's
+            :attr:`~isaaclab.visualizers.BaseVisualizer.key_event_source`, so a
+            keyboard pipeline follows whichever visualizer window has focus.
 
     Returns:
         A fully configured :class:`IsaacTeleopDevice` ready for use in a
@@ -646,6 +683,7 @@ def create_isaac_teleop_device(
         mcap_replay_path=mcap_replay_path,
         enable_debug_visualization=enable_debug_visualization,
         haptic_cfg=haptic_cfg,
+        key_event_sources=key_event_sources,
     )
 
     if callbacks is not None:
