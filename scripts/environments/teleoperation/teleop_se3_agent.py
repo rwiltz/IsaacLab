@@ -42,9 +42,10 @@ parser.add_argument(
     type=str,
     default=None,
     help=(
-        "Legacy teleop device name. When omitted, the Isaac Capture pipeline is used if configured in the env,"
-        " otherwise keyboard is used as fallback. When explicitly provided, the script uses the legacy"
-        " teleop_devices path and looks up this name in env_cfg.teleop_devices.devices."
+        "Teleop device name: an entry of env_cfg.teleop_devices.devices, or a built-in device (keyboard,"
+        " spacemouse, gamepad). When omitted, the Isaac Capture pipeline is used if configured in the env,"
+        " otherwise keyboard. Keyboard, gamepad and spacemouse run through Isaac Capture when the isaacteleop"
+        " package is installed, and through the deprecated isaaclab.devices devices otherwise."
     ),
 )
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
@@ -119,10 +120,12 @@ import gymnasium as gym
 import torch
 from isaaclab_physx.renderers import IsaacRtxRendererGlobalSettingsCfg
 
+from isaaclab.devices import DeviceCfg, Se3GamepadCfg, Se3KeyboardCfg, Se3SpaceMouseCfg
 from isaaclab.devices.openxr import remove_camera_configs
 from isaaclab.devices.teleop_device_factory import create_teleop_device
 from isaaclab.envs import ManagerBasedRLEnvCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
+from isaaclab.utils import instantiate
 
 import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.core.lift import mdp
@@ -171,18 +174,19 @@ def _rtx_rendering_requested(args: argparse.Namespace) -> bool:
     return external_cameras or ("kit" in visualizers) or bool(getattr(args, "xr", False))
 
 
+def _builtin_device_cfgs(sensitivity: float) -> dict[str, DeviceCfg]:
+    """The built-in devices, by ``--teleop_device`` name, for names the environment does not declare."""
+    return {
+        "keyboard": Se3KeyboardCfg(pos_sensitivity=0.05 * sensitivity, rot_sensitivity=0.05 * sensitivity),
+        "spacemouse": Se3SpaceMouseCfg(pos_sensitivity=0.05 * sensitivity, rot_sensitivity=0.05 * sensitivity),
+        "gamepad": Se3GamepadCfg(pos_sensitivity=0.1 * sensitivity, rot_sensitivity=0.1 * sensitivity),
+    }
+
+
 def _create_builtin_device(device_name: str, sensitivity: float) -> object | None:
     """Create a built-in teleop device by name, or return None if unrecognized."""
-    from isaaclab.devices import Se3Gamepad, Se3GamepadCfg, Se3Keyboard, Se3KeyboardCfg, Se3SpaceMouse, Se3SpaceMouseCfg
-
-    name = device_name.lower()
-    if name == "keyboard":
-        return Se3Keyboard(Se3KeyboardCfg(pos_sensitivity=0.05 * sensitivity, rot_sensitivity=0.05 * sensitivity))
-    elif name == "spacemouse":
-        return Se3SpaceMouse(Se3SpaceMouseCfg(pos_sensitivity=0.05 * sensitivity, rot_sensitivity=0.05 * sensitivity))
-    elif name == "gamepad":
-        return Se3Gamepad(Se3GamepadCfg(pos_sensitivity=0.1 * sensitivity, rot_sensitivity=0.1 * sensitivity))
-    return None
+    device_cfg = _builtin_device_cfgs(sensitivity).get(device_name.lower())
+    return None if device_cfg is None else instantiate(device_cfg)
 
 
 def _make_haptic_io(env, teleop_interface, env_cfg, use_isaac_teleop: bool):
@@ -202,35 +206,6 @@ def _make_haptic_io(env, teleop_interface, env_cfg, use_isaac_teleop: bool):
     if driver is None:
         return noop, noop
     return driver.update, driver.stop
-
-
-def _make_control_keyboard(teleop_interface, use_isaac_teleop: bool, has_window: bool):
-    """Create an optional keyboard for headset-free Isaac Capture control.
-
-    Binds ``B`` / ``P`` / ``R`` to start-resume / pause / reset so a user can drive
-    the teleop state machine without an XR headset. Keys are captured through the app
-    window, so this returns ``None`` when there is no window or when Isaac Capture is
-    not the active stack (a windowless run still auto-starts teleop). ``R`` is an operator
-    reset: :meth:`~isaaclab_teleop.IsaacTeleopDevice.reset` with ``pause=True`` injects a
-    single RESET pulse (the loop's control-event handler turns it into one environment
-    reset) and pauses the session (binding it straight to the reset callback would reset
-    the env twice). The returned device must be kept referenced by the caller so its carb
-    input subscription survives.
-    """
-    if not use_isaac_teleop or not has_window:
-        return None
-    from isaaclab.devices import Se3Keyboard, Se3KeyboardCfg
-
-    try:
-        keyboard = Se3Keyboard(Se3KeyboardCfg(pos_sensitivity=0.0, rot_sensitivity=0.0))
-        keyboard.add_callback("B", teleop_interface.request_start)
-        keyboard.add_callback("P", teleop_interface.request_stop)
-        keyboard.add_callback("R", lambda: teleop_interface.reset(pause=True))
-        print("Isaac Capture control keys: [B] start/resume  [P] pause  [R] reset")
-        return keyboard
-    except Exception as e:
-        logger.warning(f"Control keyboard unavailable ({e}); teleop still auto-starts without --xr")
-        return None
 
 
 def main() -> None:  # noqa: C901
@@ -261,12 +236,18 @@ def main() -> None:  # noqa: C901
         # add termination condition for reaching the goal otherwise the environment won't reset
         env_cfg.terminations.object_reached_goal = DoneTerm(func=mdp.object_reached_goal)
 
-    # When --teleop_device is explicitly provided, use the legacy teleop_devices path
-    # even if isaac_teleop is configured. Otherwise prefer isaac_teleop when available.
-    teleop_device_explicitly_set = args_cli.teleop_device is not None
-    use_isaac_teleop = (
-        not teleop_device_explicitly_set and hasattr(env_cfg, "isaac_teleop") and env_cfg.isaac_teleop is not None
+    from isaaclab_teleop.device_selection import is_isaacteleop_available, select_isaac_teleop_cfg
+
+    # Isaac Capture serves the request when it can: the env's isaac_teleop pipeline, or the
+    # keyboard, gamepad or spacemouse it names. Otherwise the deprecated device path does.
+    isaac_teleop_cfg = select_isaac_teleop_cfg(
+        env_cfg, args_cli.teleop_device, _builtin_device_cfgs(args_cli.sensitivity), args_cli.device
     )
+    use_isaac_teleop = isaac_teleop_cfg is not None
+    if use_isaac_teleop:
+        env_cfg.isaac_teleop = isaac_teleop_cfg
+    elif not is_isaacteleop_available():
+        logger.info("isaacteleop is not installed; using the deprecated isaaclab.devices teleop devices")
 
     # XR-rendering setup (camera removal + DLSS) is only needed for the Kit XR
     # path. Without --xr, Isaac Capture runs standalone (I/O only) and renders
@@ -285,8 +266,6 @@ def run_teleoperation(env_cfg: ManagerBasedRLEnvCfg, use_isaac_teleop: bool, cle
     """Create the environment and teleop device, then run the teleoperation loop until the app is closed."""
     from isaaclab_physx.renderers.isaac_rtx_renderer_utils import apply_isaac_rtx_global_settings
     from isaaclab_teleop import XrCameraFeedSession
-
-    from isaaclab.devices import Se3Keyboard, Se3KeyboardCfg
 
     teleop_device_explicitly_set = args_cli.teleop_device is not None
 
@@ -429,10 +408,7 @@ def run_teleoperation(env_cfg: ManagerBasedRLEnvCfg, use_isaac_teleop: bool, cle
                         logger.warning(f"Failed to add callback for key {key}: {e}")
         else:
             # No --teleop_device and no isaac_teleop: fall back to keyboard
-            sensitivity = args_cli.sensitivity
-            teleop_interface = Se3Keyboard(
-                Se3KeyboardCfg(pos_sensitivity=0.05 * sensitivity, rot_sensitivity=0.05 * sensitivity)
-            )
+            teleop_interface = _create_builtin_device("keyboard", args_cli.sensitivity)
             for key, callback in teleoperation_callbacks.items():
                 try:
                     teleop_interface.add_callback(key, callback)
@@ -454,12 +430,16 @@ def run_teleoperation(env_cfg: ManagerBasedRLEnvCfg, use_isaac_teleop: bool, cle
     # ``haptic_feedback`` config and the device can render it (Isaac Capture).
     haptic_update, haptic_stop = _make_haptic_io(env, teleop_interface, env_cfg, use_isaac_teleop)
 
-    # Optional keyboard for headset-free Isaac Capture control. Kept in a local so its
-    # carb input subscription is not garbage-collected; a headless run auto-starts
-    # (in ``run_loop``) without it.
-    # a local window exists (GUI or livestream) unless XR runs headless without a viewport
-    has_window = env.sim.has_gui and not env.sim.get_setting("/isaaclab/xr/auto_start")
-    control_keyboard = _make_control_keyboard(teleop_interface, use_isaac_teleop, has_window)  # noqa: F841
+    # Headset-free Isaac Capture control from the focused viewer window; a windowless run
+    # auto-starts (in ``run_loop``) without it.
+    control_pollers = []
+    if use_isaac_teleop:
+        from isaaclab_teleop.control_pollers import create_control_pollers
+
+        # [R] resets through the session's control event (ctrl.should_reset below), so passing
+        # on_reset here would reset the environment twice.
+        control_pollers = create_control_pollers(teleop_interface)
+        print("Isaac Capture control keys: [B] start/resume  [P] pause  [R] reset")
 
     def run_loop():
         """Inner function to run the teleop loop with access to nonlocal variables."""
@@ -485,6 +465,8 @@ def run_teleoperation(env_cfg: ManagerBasedRLEnvCfg, use_isaac_teleop: bool, cle
                 with torch.inference_mode():
                     # get device command
                     action = teleop_interface.advance()
+                    for poller in control_pollers:
+                        poller.advance()
 
                     if use_isaac_teleop:
                         ctrl = poll_control_events(teleop_interface)
