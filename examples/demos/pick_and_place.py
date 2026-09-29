@@ -34,6 +34,7 @@ if args_cli.max_steps == 0 or args_cli.max_steps < -1:
     parser.error("--max_steps must be positive or -1.")
 
 from isaaclab_physx.assets import SurfaceGripperCfg
+from isaaclab_teleop.teleop_input import create_teleop_input
 
 import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
@@ -42,7 +43,7 @@ from isaaclab.envs import DirectRLEnv, DirectRLEnvCfg
 from isaaclab.markers import SPHERE_MARKER_CFG
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sim import SimulationCfg
-from isaaclab.utils import configclass, index_fill_, instantiate, replace
+from isaaclab.utils import configclass, index_fill_, replace
 from isaaclab.utils.math import sample_uniform
 
 from isaaclab_assets.robots.pick_and_place import PICK_AND_PLACE_CFG
@@ -323,30 +324,31 @@ def main() -> None:
         pick_and_place.reset()
         actions = torch.zeros((pick_and_place.num_envs, 4), device=pick_and_place.device)
         teleop = None
-        if pick_and_place.sim.has_gui:
-            teleop_cfg = Se3KeyboardCfg(pos_sensitivity=10.0, sim_device=pick_and_place.device)
-            teleop = instantiate(teleop_cfg)
+        # keys come from the Kit window or whichever visualizer window has focus
+        if pick_and_place.sim.has_gui or pick_and_place.sim.has_active_visualizers():
+            teleop = create_teleop_input(Se3KeyboardCfg(pos_sensitivity=10.0, sim_device=pick_and_place.device))
             teleop.add_callback("N", lambda: pick_and_place.auto_aim(cube=True))
             teleop.add_callback("M", lambda: pick_and_place.auto_aim(cube=False))
-            print(teleop)
             print("Pick up the purple cube and drop it on the red sphere, in ALL environments at once.")
             print("\tW/S and A/D move the gantries, Q/E latch them UP/DOWN, K toggles the grippers.")
             print("\tN/M make the grippers track the cube/target position.")
         step_count = 0
         try:
             while pick_and_place.sim.is_running() and (args_cli.max_steps < 0 or step_count < args_cli.max_steps):
-                if teleop is not None:
-                    cmd = teleop.advance()
+                cmd = teleop.advance() if teleop is not None else None
+                if cmd is not None:
                     actions[:, :2] = cmd[:2]
                     # Latch the gantry height effort; the z joint moves up for negative effort
                     if cmd[2] != 0:
                         actions[:, 2] = -200.0 if cmd[2] > 0 else 100.0
-                    # Se3Keyboard reports +1 for open, the surface gripper uses -1 for open
+                    # the keyboard reports +1 for open, the surface gripper uses -1 for open
                     actions[:, 3] = -cmd[6]
                 with torch.inference_mode():
                     pick_and_place.step(actions)
                 step_count += 1
         finally:
+            if teleop is not None:
+                teleop.close()
             pick_and_place.close()
 
 
