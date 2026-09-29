@@ -11,8 +11,9 @@ import collections
 import json
 import logging
 import os
+import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any, Protocol
 
 import numpy as np
@@ -21,6 +22,7 @@ import torch
 if TYPE_CHECKING:
     from isaacteleop.cloudxr import CloudXRLauncher
     from isaacteleop.oxr import OpenXRSessionHandles
+    from isaacteleop.retargeting_engine.deviceio_source_nodes import KeyEventSource
     from isaacteleop.retargeting_engine.interface.execution_events import ExecutionEvents
     from isaacteleop.retargeting_engine_ui import MultiRetargeterTuningUIImGui
     from isaacteleop.teleop_session_manager import TeleopSession
@@ -176,6 +178,47 @@ def _execution_events_to_control(ee: ExecutionEvents) -> ControlEvents:
     return ControlEvents(is_active=is_active, should_reset=ee.reset)
 
 
+class _ControlKeyListener:
+    """One input surface's control-key subscription for a session.
+
+    Keeps that surface's held keys, so repeats of a held key are not presses and focus loss on one
+    surface leaves the others alone. Once retired (the session stopped), late callbacks from the
+    surface's event thread change nothing; a new session gets new listeners.
+    """
+
+    def __init__(self, lock: threading.Lock, queue_press: Callable[[int], None]) -> None:
+        self._lock = lock
+        self._queue_press = queue_press
+        self._held: set[int] = set()
+        self._active = True
+
+    def on_key(self, code: str | int, pressed: bool) -> None:
+        if isinstance(code, str):
+            from isaacteleop.deviceio_trackers import evdev_code_from_w3c
+
+            code = evdev_code_from_w3c(code)
+            if code is None:
+                return
+        with self._lock:
+            if not self._active:
+                return
+            if not pressed:
+                self._held.discard(code)
+            elif code not in self._held:
+                self._held.add(code)
+                self._queue_press(code)
+
+    def on_focus_lost(self) -> None:
+        with self._lock:
+            if self._active:
+                self._held.clear()
+
+    def retire(self) -> None:
+        with self._lock:
+            self._active = False
+            self._held.clear()
+
+
 class TeleopSessionLifecycle:
     """Manages the Isaac Capture session lifecycle.
 
@@ -190,6 +233,7 @@ class TeleopSessionLifecycle:
     6. Building external inputs for pipeline leaf nodes (e.g. world-to-anchor transform)
     7. Stepping the session and extracting the flattened action tensor
     8. Managing the optional retargeting tuning UI
+    9. Feeding the pipeline's keyboards from the focused visualizer windows
     """
 
     WORLD_T_ANCHOR_INPUT_NAME = "world_T_anchor"
@@ -236,6 +280,7 @@ class TeleopSessionLifecycle:
         mcap_replay_path: str | None = None,
         enable_debug_visualization: bool = False,
         haptic_cfg: HapticFeedbackCfg | None = None,
+        key_event_sources: Sequence[KeyEventSource] | None = None,
     ):
         """Initialize the session lifecycle manager.
 
@@ -276,6 +321,11 @@ class TeleopSessionLifecycle:
                 per-hand output vectors pushed via :meth:`push_haptic` are
                 rendered on the configured device (controller, glove, ...).
                 ``None`` disables haptics entirely.
+            key_event_sources: Input surfaces (Isaac Capture ``KeyEventSource`` objects)
+                that feed the pipeline's keyboards.  ``None`` (the default) uses the
+                ``key_event_source`` of every running visualizer (see
+                :attr:`isaaclab.visualizers.BaseVisualizer.key_event_source`), so keys
+                typed into whichever visualizer window has focus reach the pipeline.
 
         Raises:
             ValueError: If both *mcap_record_path* and *mcap_replay_path*
@@ -328,6 +378,16 @@ class TeleopSessionLifecycle:
         self._restart_holdoff_until = 0.0
         # Fallback for host-initiated resets when no control pipeline is configured
         self._pending_reset = False
+
+        # Keyboards: explicit input surfaces, or None to discover the visualizers' surfaces.
+        self._key_event_sources = list(key_event_sources) if key_event_sources is not None else None
+        self._keyboard_detachers: list[Callable[[], None]] = []
+        self._attached_key_event_sources: list[KeyEventSource] = []
+        # Operator key presses for control (start/pause/reset and script callbacks), read straight
+        # from the input surfaces so each press is consumed once, whatever the retargeting mode.
+        self._control_keys_lock = threading.Lock()
+        self._control_keys_pressed: list[int] = []
+        self._control_key_listeners: list[_ControlKeyListener] = []
 
         # CloudXR runtime launcher (created in start if configured, stopped in stop)
         self._cloudxr_launcher: CloudXRLauncher | None = None
@@ -554,6 +614,8 @@ class TeleopSessionLifecycle:
         self._last_step_result = None
 
         self._pipeline = self._build_combined_pipeline(user_pipeline)
+        self._clear_control_keys()
+        self._attach_keyboards()
 
         # Build the optional haptic sink. It reuses the button-controller
         # tracker so no additional ControllersSource (and thus no duplicate
@@ -602,6 +664,9 @@ class TeleopSessionLifecycle:
             exc_val: Exception value.
             exc_tb: Exception traceback.
         """
+        self._detach_keyboards()
+        self._clear_control_keys()
+
         # Close the retargeting tuning UI first
         if self._retargeting_ui_ctx is not None:
             self._retargeting_ui_ctx.__exit__(exc_type, exc_val, exc_tb)
@@ -666,17 +731,105 @@ class TeleopSessionLifecycle:
         from isaacteleop.retargeting_engine.deviceio_source_nodes import ControllersSource
         from isaacteleop.retargeting_engine.interface import OutputCombiner
 
+        # Forward every output the user pipeline declares, not just "action", so
+        # devices with extra outputs (e.g. a raw key-state bitmap) can read them
+        # back via last_step_result. A no-op for pipelines that only return "action".
+        pipeline_outputs: dict[str, Any] = {name: user_pipeline.output(name) for name in user_pipeline.output_types()}
+
         # Stored on self so start() can reuse this ControllersSource's tracker for
         # the haptic sink, avoiding a second controller action-set attachment.
         self._button_controllers = ControllersSource("_button_controllers")
-        pipeline_outputs: dict[str, Any] = {
-            "action": user_pipeline.output("action"),
-            self._CONTROLLER_RIGHT_KEY: self._button_controllers.output(ControllersSource.RIGHT),
-        }
+        pipeline_outputs[self._CONTROLLER_RIGHT_KEY] = self._button_controllers.output(ControllersSource.RIGHT)
         if self._enable_debug_visualization:
             pipeline_outputs[self._CONTROLLER_LEFT_KEY] = self._button_controllers.output(ControllersSource.LEFT)
             self._chain_hand_debug_outputs(user_pipeline, pipeline_outputs)
         return OutputCombiner(pipeline_outputs)
+
+    # ------------------------------------------------------------------
+    # Keyboards
+    # ------------------------------------------------------------------
+
+    def _resolve_key_event_sources(self) -> list[Any]:
+        """The input surfaces to feed the keyboards: the explicit ones, or the visualizers' surfaces."""
+        if self._key_event_sources is not None:
+            return self._key_event_sources
+        try:
+            from isaaclab.sim import SimulationContext
+
+            sim = SimulationContext.instance()
+        except Exception:
+            return []
+        if sim is None:
+            return []
+        # A visualizer without a window that reports keys returns None.
+        surfaces = (getattr(visualizer, "key_event_source", None) for visualizer in sim.visualizers)
+        return [surface for surface in surfaces if surface is not None]
+
+    def _attach_keyboards(self) -> None:
+        """Feed the pipeline's keyboards and the control keys from the input surfaces not attached yet.
+
+        Called at start and, until a surface is found, on each step, since visualizer
+        windows can open after the session starts.  The pipeline's keyboards ask the
+        surface to yield its conflicting key bindings (e.g. camera movement keys); the
+        control-key listener only listens.
+        """
+        if self._pipeline is None or self._is_replay:
+            return
+        from isaacteleop.retargeting_engine.deviceio_source_nodes import KeyboardSource, find_sources
+
+        keyboards = find_sources(self._pipeline, KeyboardSource)
+        for surface in self._resolve_key_event_sources():
+            if any(surface is attached for attached in self._attached_key_event_sources):
+                continue
+            for keyboard in keyboards:
+                try:
+                    self._keyboard_detachers.append(keyboard.attach(surface))
+                except Exception as e:
+                    logger.warning(f"Could not attach {type(surface).__name__} to keyboard '{keyboard.name}': {e}")
+            try:
+                listener = _ControlKeyListener(self._control_keys_lock, self._control_keys_pressed_append)
+                subscription = surface.add_key_listener(listener.on_key, listener.on_focus_lost)
+                self._control_key_listeners.append(listener)
+                self._keyboard_detachers.append(subscription.close)
+            except Exception as e:
+                logger.warning(f"Could not read control keys from {type(surface).__name__}: {e}")
+            self._attached_key_event_sources.append(surface)
+            logger.info(f"Isaac Capture keyboard input from {type(surface).__name__}")
+
+    def _detach_keyboards(self) -> None:
+        """Detach every input surface, releasing held keys and restoring the surfaces' key bindings."""
+        # Retire the control-key listeners first: a callback still running on a surface's event
+        # thread then cannot queue a press after the session stops.
+        listeners, self._control_key_listeners = self._control_key_listeners, []
+        for listener in listeners:
+            listener.retire()
+        detachers, self._keyboard_detachers = self._keyboard_detachers, []
+        for detach in detachers:
+            try:
+                detach()
+            except Exception as e:
+                logger.debug(f"Suppressed error detaching a keyboard input surface: {e}")
+        self._attached_key_event_sources = []
+
+    def drain_pressed_keys(self) -> list[int]:
+        """Evdev codes of the keys pressed on the input surfaces since the last call, in order.
+
+        Each press is returned once, whatever the retargeting execution mode; repeats of a held
+        key are not presses. Presses from before the session started or stopped are dropped.
+        Surfaces may report keys from their own event thread; call this, :meth:`start` and
+        :meth:`stop` from the thread that steps the session.
+        """
+        with self._control_keys_lock:
+            pressed, self._control_keys_pressed = self._control_keys_pressed, []
+        return pressed
+
+    def _control_keys_pressed_append(self, code: int) -> None:
+        """Queue a press; called by a control-key listener with ``_control_keys_lock`` held."""
+        self._control_keys_pressed.append(code)
+
+    def _clear_control_keys(self) -> None:
+        with self._control_keys_lock:
+            self._control_keys_pressed = []
 
     @staticmethod
     def _chain_hand_debug_outputs(user_pipeline, pipeline_outputs: dict) -> None:
@@ -1188,6 +1341,10 @@ class TeleopSessionLifecycle:
                 return None
             if not self._try_start_session():
                 return None
+
+        # Visualizer windows can open after the session starts.
+        if not self._attached_key_event_sources:
+            self._attach_keyboards()
 
         # Build external inputs (e.g. world-to-anchor transform) if the
         # pipeline contains ValueInput leaf nodes.

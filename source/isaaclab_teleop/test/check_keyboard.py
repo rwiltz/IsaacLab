@@ -1,0 +1,93 @@
+# Copyright (c) 2022-2026, The Isaac Lab Project Developers (https://github.com/isaac-sim/IsaacLab/blob/main/CONTRIBUTORS.md).
+# All rights reserved.
+#
+# SPDX-License-Identifier: BSD-3-Clause
+
+"""
+This script shows how to use a teleoperation device with Isaac Sim.
+
+The teleoperation device is a keyboard device that allows the user to control the robot.
+It is possible to add additional callbacks to it for user-defined operations.
+"""
+
+import argparse
+
+from isaaclab.app import add_launcher_args, launch_simulation
+
+parser = argparse.ArgumentParser(description="Check the keyboard teleoperation device.")
+add_launcher_args(parser)
+# keyboard input needs the Kit window, so open the Kit visualizer by default
+parser.set_defaults(visualizer=["kit"])
+args_cli = parser.parse_args()
+
+import sys
+
+from isaaclab.sim import SimulationCfg, SimulationContext
+
+
+def print_cb():
+    """Dummy callback function executed when the key 'L' is pressed."""
+    print("Print callback")
+
+
+def quit_cb():
+    """Dummy callback function executed when the key 'ESC' is pressed."""
+    print("Quit callback")
+    SimulationContext.instance().stop()
+
+
+def main():
+    sim_cfg = SimulationCfg(dt=0.01, device=args_cli.device)
+    with launch_simulation(sim_cfg, args_cli):
+        from isaaclab_teleop import create_isaac_teleop_device
+        from isaaclab_teleop.control_pollers import KeyboardControlPoller
+        from isaaclab_teleop.keyboard import se3_keyboard_teleop_cfg
+
+        sim = SimulationContext(sim_cfg)
+
+        # Create teleoperation interface
+        teleop_interface = create_isaac_teleop_device(
+            se3_keyboard_teleop_cfg(pos_sensitivity=0.1, rot_sensitivity=0.1), use_kit_xr_bridge=False
+        )
+        teleop_interface.__enter__()
+        # Add teleoperation callbacks
+        control_poller = KeyboardControlPoller(teleop_interface)
+        control_poller.add_callback("L", print_cb)
+        control_poller.add_callback("ESCAPE", quit_cb)
+
+        print("Press 'L' to print a message. Press 'ESC' to quit.")
+
+        # Check that the framework doesn't hold excessive strong references.
+        if sys.getrefcount(teleop_interface) >= 10:
+            raise RuntimeError("Possible reference leak for teleoperation interface.")
+
+        # Reset interface internals
+        teleop_interface.reset()
+
+        # Play simulation
+        sim.reset()
+
+        # Simulate
+        while sim.is_running():
+            # If simulation is stopped, then exit.
+            if sim.is_stopped():
+                break
+            # If simulation is paused, then skip.
+            if not sim.is_playing():
+                sim.step()
+                continue
+            # get keyboard command
+            action = teleop_interface.advance()
+            control_poller.advance()
+            # print command
+            if action is not None:
+                print(f"Action: {action}")
+            # step simulation
+            sim.step()
+            # check if simulator is stopped
+            if sim.is_stopped():
+                break
+
+
+if __name__ == "__main__":
+    main()
