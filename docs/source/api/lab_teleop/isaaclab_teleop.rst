@@ -11,6 +11,8 @@ isaaclab_teleop
 
     IsaacTeleopCfg
     IsaacTeleopDevice
+    KeyboardControlPoller
+    SpaceMouseResetPoller
     XrCameraFeedCfg
     XrCameraFeedLayoutCfg
     XrCameraFeedSession
@@ -30,6 +32,12 @@ isaaclab_teleop
     create_isaac_teleop_device
     create_haptic_feedback_driver
     remove_camera_configs
+    se2_gamepad_teleop_cfg
+    se2_keyboard_teleop_cfg
+    se2_spacemouse_teleop_cfg
+    se3_gamepad_teleop_cfg
+    se3_keyboard_teleop_cfg
+    se3_spacemouse_teleop_cfg
 
 Configuration
 -------------
@@ -63,6 +71,33 @@ Device
     :show-inheritance:
 
 .. autofunction:: create_isaac_teleop_device
+
+Keyboard
+--------
+
+.. autofunction:: se2_keyboard_teleop_cfg
+
+.. autofunction:: se3_keyboard_teleop_cfg
+
+.. autoclass:: KeyboardControlPoller
+    :members:
+
+Gamepad
+-------
+
+.. autofunction:: se2_gamepad_teleop_cfg
+
+.. autofunction:: se3_gamepad_teleop_cfg
+
+SpaceMouse
+----------
+
+.. autofunction:: se2_spacemouse_teleop_cfg
+
+.. autofunction:: se3_spacemouse_teleop_cfg
+
+.. autoclass:: SpaceMouseResetPoller
+    :members:
 
 Haptic Feedback
 ---------------
