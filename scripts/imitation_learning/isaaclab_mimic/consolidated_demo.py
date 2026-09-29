@@ -186,70 +186,82 @@ async def run_teleop_robot(
     """Run teleop robot."""
     global num_recorded
     should_reset_teleop_instance = False
-    # create controller if needed
-    if teleop_interface is None:
+    # create controller if needed; one created here is closed here too
+    owns_teleop_interface = teleop_interface is None
+    if owns_teleop_interface:
         # the teleop devices need the Kit runtime, which is running by the time this coroutine executes
-        from isaaclab.devices import Se3Keyboard, Se3KeyboardCfg, Se3SpaceMouse, Se3SpaceMouseCfg
+        from isaaclab_teleop.teleop_input import create_teleop_input
 
-        if args_cli.teleop_device.lower() == "keyboard":
-            teleop_interface = Se3Keyboard(Se3KeyboardCfg(pos_sensitivity=0.2, rot_sensitivity=0.5))
-        elif args_cli.teleop_device.lower() == "spacemouse":
-            teleop_interface = Se3SpaceMouse(Se3SpaceMouseCfg(pos_sensitivity=0.2, rot_sensitivity=0.5))
-        else:
+        from isaaclab.devices import Se3KeyboardCfg, Se3SpaceMouseCfg
+
+        device_cfgs = {
+            "keyboard": Se3KeyboardCfg(pos_sensitivity=0.2, rot_sensitivity=0.5),
+            "spacemouse": Se3SpaceMouseCfg(pos_sensitivity=0.2, rot_sensitivity=0.5),
+        }
+        device_cfg = device_cfgs.get(args_cli.teleop_device.lower())
+        if device_cfg is None:
             raise ValueError(
                 f"Invalid device interface '{args_cli.teleop_device}'. Supported: 'keyboard', 'spacemouse'."
             )
+        teleop_interface = create_teleop_input(device_cfg)
 
-    # add teleoperation key for reset current recording instance
-    def reset_teleop_instance():
-        nonlocal should_reset_teleop_instance
-        should_reset_teleop_instance = True
+    try:
+        # add teleoperation key for reset current recording instance
+        def reset_teleop_instance():
+            nonlocal should_reset_teleop_instance
+            should_reset_teleop_instance = True
 
-    teleop_interface.add_callback("R", reset_teleop_instance)
+        # the R key, or the SpaceMouse's right button
+        teleop_interface.add_callback("R", reset_teleop_instance)
 
-    teleop_interface.reset()
-    print(teleop_interface)
+        recorded_episode_dataset_file_handler = HDF5DatasetFileHandler()
+        recorded_episode_dataset_file_handler.create(exported_dataset_path, env_name=env.unwrapped.cfg.env_name)
 
-    recorded_episode_dataset_file_handler = HDF5DatasetFileHandler()
-    recorded_episode_dataset_file_handler.create(exported_dataset_path, env_name=env.unwrapped.cfg.env_name)
-
-    env_id_tensor = torch.tensor([env_id], dtype=torch.int64, device=env.device)
-    success_step_count = 0
-    num_recorded = 0
-    while True:
-        if should_reset_teleop_instance:
-            env.unwrapped.recorder_manager.reset(env_id_tensor)
-            env.unwrapped.reset(env_ids=env_id_tensor)
-            should_reset_teleop_instance = False
-            success_step_count = 0
-
-        # get keyboard command
-        delta_pose, gripper_command = teleop_interface.advance()
-        # convert to torch
-        delta_pose = torch.tensor(delta_pose, dtype=torch.float, device=env.device).repeat(1, 1)
-        # compute actions based on environment
-        teleop_action = pre_process_actions(delta_pose, gripper_command)
-
-        await env_action_queue.put((env_id, teleop_action))
-        await env_action_queue.join()
-
-        if success_term is not None:
-            if bool(success_term.func(env, **success_term.params)[env_id]):
-                success_step_count += 1
-                if success_step_count >= args_cli.num_success_steps:
-                    env.recorder_manager.set_success_to_episodes(
-                        env_id_tensor, torch.tensor([[True]], dtype=torch.bool, device=env.device)
-                    )
-                    teleop_episode = env.unwrapped.recorder_manager.get_episode(env_id)
-                    await shared_datagen_info_pool.add_episode(teleop_episode)
-
-                    recorded_episode_dataset_file_handler.write_episode(teleop_episode)
-                    recorded_episode_dataset_file_handler.flush()
-                    env.recorder_manager.reset(env_id_tensor)
-                    num_recorded += 1
-                    should_reset_teleop_instance = True
-            else:
+        env_id_tensor = torch.tensor([env_id], dtype=torch.int64, device=env.device)
+        success_step_count = 0
+        num_recorded = 0
+        while True:
+            if should_reset_teleop_instance:
+                env.unwrapped.recorder_manager.reset(env_id_tensor)
+                env.unwrapped.reset(env_ids=env_id_tensor)
+                should_reset_teleop_instance = False
                 success_step_count = 0
+
+            # get the device command: a flattened [dx, dy, dz, drx, dry, drz, gripper] tensor, or None
+            # while an Isaac Capture session is still starting. Every env in this batch must submit
+            # exactly one action per round (see ``env_loop``), so hold still with the gripper open.
+            action = teleop_interface.advance()
+            if action is None:
+                action = torch.tensor([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0])
+            delta_pose = action[:6].to(dtype=torch.float, device=env.device).repeat(1, 1)
+            # action[6] is +1 to open and -1 to close; pre_process_actions takes "close" as True
+            gripper_command = bool(action[6] < 0)
+            # compute actions based on environment
+            teleop_action = pre_process_actions(delta_pose, gripper_command)
+
+            await env_action_queue.put((env_id, teleop_action))
+            await env_action_queue.join()
+
+            if success_term is not None:
+                if bool(success_term.func(env, **success_term.params)[env_id]):
+                    success_step_count += 1
+                    if success_step_count >= args_cli.num_success_steps:
+                        env.recorder_manager.set_success_to_episodes(
+                            env_id_tensor, torch.tensor([[True]], dtype=torch.bool, device=env.device)
+                        )
+                        teleop_episode = env.unwrapped.recorder_manager.get_episode(env_id)
+                        await shared_datagen_info_pool.add_episode(teleop_episode)
+
+                        recorded_episode_dataset_file_handler.write_episode(teleop_episode)
+                        recorded_episode_dataset_file_handler.flush()
+                        env.recorder_manager.reset(env_id_tensor)
+                        num_recorded += 1
+                        should_reset_teleop_instance = True
+                else:
+                    success_step_count = 0
+    finally:
+        if owns_teleop_interface:
+            teleop_interface.close()
 
 
 async def run_data_generator(
@@ -339,7 +351,6 @@ def env_loop(env, env_action_queue, shared_datagen_info_pool, asyncio_event_loop
 
             if rate_limiter:
                 rate_limiter.sleep(env.unwrapped)
-    env.close()
 
 
 def main():
@@ -470,7 +481,15 @@ def run_consolidated_demo(env_cfg, success_term):
     except asyncio.CancelledError:
         print("Tasks were cancelled.")
 
-    env_loop(env, env_action_queue, shared_datagen_info_pool, asyncio_event_loop)
+    try:
+        env_loop(env, env_action_queue, shared_datagen_info_pool, asyncio_event_loop)
+    finally:
+        # Stop the generator and teleop coroutines so their cleanup (closing the teleop input)
+        # runs while the environment and its visualizers still exist.
+        for task in data_generator_asyncio_tasks:
+            task.cancel()
+        asyncio_event_loop.run_until_complete(asyncio.gather(*data_generator_asyncio_tasks, return_exceptions=True))
+        env.close()
 
 
 if __name__ == "__main__":

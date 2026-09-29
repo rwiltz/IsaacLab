@@ -129,6 +129,7 @@ def compare_states(state_from_dataset, runtime_state, runtime_env_index) -> (boo
 
 def replay_episodes_loop(  # noqa: C901
     env,
+    teleop_interface,
     dataset_file_handler: HDF5DatasetFileHandler,
     episode_names: list[str],
     episode_count: int,
@@ -221,8 +222,10 @@ def replay_episodes_loop(  # noqa: C901
                     first_loop = False
                 else:
                     while is_paused:
+                        teleop_interface.advance()
                         env.sim.render()
                         continue
+                teleop_interface.advance()
                 env.step(actions)
 
                 if state_validation_enabled:
@@ -308,63 +311,66 @@ def replay_dataset(
     success_term,
 ):
     """Create the environment and replay the selected episodes of the dataset."""
-    # the keyboard device needs the Kit runtime, which is running at this point
-    from isaaclab.devices import Se3Keyboard, Se3KeyboardCfg
+    from isaaclab_teleop.teleop_input import create_teleop_input
+
+    from isaaclab.devices import Se3KeyboardCfg
 
     num_envs = args_cli.num_envs
 
     # create environment from loaded config
     env = gym.make(args_cli.task, cfg=env_cfg).unwrapped
 
-    teleop_interface = Se3Keyboard(Se3KeyboardCfg(pos_sensitivity=0.1, rot_sensitivity=0.1))
+    teleop_interface = create_teleop_input(Se3KeyboardCfg(pos_sensitivity=0.1, rot_sensitivity=0.1))
     teleop_interface.add_callback("N", play_cb)
     teleop_interface.add_callback("B", pause_cb)
     print('Press "B" to pause and "N" to resume the replayed actions.')
+    try:
+        # Determine if state validation should be conducted
+        state_validation_enabled = False
+        if args_cli.validate_states and num_envs == 1:
+            state_validation_enabled = True
+        elif args_cli.validate_states and num_envs > 1:
+            logger.warning("State validation is only supported with a single environment. Skipping state validation.")
 
-    # Determine if state validation should be conducted
-    state_validation_enabled = False
-    if args_cli.validate_states and num_envs == 1:
-        state_validation_enabled = True
-    elif args_cli.validate_states and num_envs > 1:
-        logger.warning("State validation is only supported with a single environment. Skipping state validation.")
+        # Get idle action (idle actions are applied to envs without next action)
+        if hasattr(env_cfg, "idle_action"):
+            idle_action = torch.tensor(env_cfg.idle_action, device=env.unwrapped.device).repeat(num_envs, 1)
+        else:
+            idle_action = torch.zeros(env.action_space.shape)
 
-    # Get idle action (idle actions are applied to envs without next action)
-    if hasattr(env_cfg, "idle_action"):
-        idle_action = torch.tensor(env_cfg.idle_action, device=env.unwrapped.device).repeat(num_envs, 1)
-    else:
-        idle_action = torch.zeros(env.action_space.shape)
+        # reset before starting
+        env.reset()
 
-    # reset before starting
-    env.reset()
-    teleop_interface.reset()
+        episode_names = list(dataset_file_handler.get_episode_names())
+        replayed_episode_count, recorded_episode_count, failed_demo_ids = replay_episodes_loop(
+            env,
+            teleop_interface,
+            dataset_file_handler,
+            episode_names,
+            episode_count,
+            episode_indices_to_replay,
+            num_envs,
+            success_term,
+            state_validation_enabled,
+            idle_action,
+            args_cli.reset_sim_buffer_each_episode,
+        )
 
-    episode_names = list(dataset_file_handler.get_episode_names())
-    replayed_episode_count, recorded_episode_count, failed_demo_ids = replay_episodes_loop(
-        env,
-        dataset_file_handler,
-        episode_names,
-        episode_count,
-        episode_indices_to_replay,
-        num_envs,
-        success_term,
-        state_validation_enabled,
-        idle_action,
-        args_cli.reset_sim_buffer_each_episode,
-    )
+        # Close environment after replay in complete
+        plural_trailing_s = "s" if replayed_episode_count > 1 else ""
+        print(f"Finished replaying {replayed_episode_count} episode{plural_trailing_s}.")
 
-    # Close environment after replay in complete
-    plural_trailing_s = "s" if replayed_episode_count > 1 else ""
-    print(f"Finished replaying {replayed_episode_count} episode{plural_trailing_s}.")
+        # Print success statistics only if validation was enabled
+        if success_term is not None:
+            print(f"Successfully replayed: {recorded_episode_count}/{replayed_episode_count}")
 
-    # Print success statistics only if validation was enabled
-    if success_term is not None:
-        print(f"Successfully replayed: {recorded_episode_count}/{replayed_episode_count}")
-
-        # Print failed demo IDs if any
-        if failed_demo_ids:
-            print(f"\nFailed demo IDs ({len(failed_demo_ids)} total):")
-            print(f"  {sorted(failed_demo_ids)}")
-
+            # Print failed demo IDs if any
+            if failed_demo_ids:
+                print(f"\nFailed demo IDs ({len(failed_demo_ids)} total):")
+                print(f"  {sorted(failed_demo_ids)}")
+    finally:
+        # Close the input before the environment: its session reads the visualizer windows.
+        teleop_interface.close()
     env.close()
 
 

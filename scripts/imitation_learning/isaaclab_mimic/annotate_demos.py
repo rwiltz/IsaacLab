@@ -79,6 +79,7 @@ is_paused = False
 current_action_index = 0
 marked_subtask_action_indices = []
 skip_episode = False
+keyboard_interface = None
 
 
 def play_cb():
@@ -164,7 +165,7 @@ class MimicRecorderManagerCfg(ActionStateRecorderManagerCfg):
 
 def main():
     """Add Isaac Lab Mimic annotations to the given demo dataset file."""
-    global is_paused, current_action_index, marked_subtask_action_indices
+    global is_paused, current_action_index, marked_subtask_action_indices, keyboard_interface
 
     # Load input dataset to be annotated
     if not os.path.exists(args_cli.input_file):
@@ -228,7 +229,9 @@ def annotate_dataset(env_cfg, dataset_file_handler: HDF5DatasetFileHandler, succ
     Returns:
         The number of successfully annotated episodes.
     """
-    global is_paused, current_action_index, marked_subtask_action_indices
+    # replay_episode() polls the module-level keyboard_interface, so assign that one
+    global is_paused, current_action_index, marked_subtask_action_indices, keyboard_interface
+    keyboard_interface = None
 
     from isaaclab.envs import ManagerBasedRLMimicEnv
 
@@ -281,17 +284,18 @@ def annotate_dataset(env_cfg, dataset_file_handler: HDF5DatasetFileHandler, succ
     # reset environment
     env.reset()
 
-    # Only enables inputs if this script runs with a GUI
-    if env.sim.has_gui:
-        from isaaclab.devices import Se3Keyboard, Se3KeyboardCfg
+    # Only enables inputs if a window (the Kit GUI or a visualizer) can report keys
+    if env.sim.has_gui or env.sim.has_active_visualizers():
+        from isaaclab_teleop.teleop_input import create_teleop_input
 
-        keyboard_interface = Se3Keyboard(Se3KeyboardCfg(pos_sensitivity=0.1, rot_sensitivity=0.1))
+        from isaaclab.devices import Se3KeyboardCfg
+
+        keyboard_interface = create_teleop_input(Se3KeyboardCfg(pos_sensitivity=0.1, rot_sensitivity=0.1))
         keyboard_interface.add_callback("N", play_cb)
         keyboard_interface.add_callback("B", pause_cb)
         keyboard_interface.add_callback("Q", skip_episode_cb)
         if not args_cli.auto:
             keyboard_interface.add_callback("S", mark_subtask_cb)
-        keyboard_interface.reset()
 
     # simulate environment -- run everything in inference mode
     exported_episode_count = 0
@@ -335,7 +339,9 @@ def annotate_dataset(env_cfg, dataset_file_handler: HDF5DatasetFileHandler, succ
     )  # This line is used by the dataset generation test case to check if the expected number of demos were annotated
     print("Exiting the app.")
 
-    # Close environment after annotation is complete
+    # Close the keyboard and the environment after annotation is complete
+    if keyboard_interface is not None:
+        keyboard_interface.close()
     env.close()
 
     return successful_task_count
@@ -360,7 +366,7 @@ def replay_episode(
         True if the episode was successfully replayed and the success condition was met (if provided),
         False otherwise.
     """
-    global current_action_index, skip_episode, is_paused
+    global current_action_index, skip_episode, is_paused, keyboard_interface
     # read initial state and actions from the loaded episode
     initial_state = episode.data["initial_state"]
     actions = episode.data["actions"]
@@ -374,10 +380,14 @@ def replay_episode(
             first_action = False
         else:
             while is_paused or skip_episode:
+                if keyboard_interface is not None:
+                    keyboard_interface.advance()
                 env.sim.render()
                 if skip_episode:
                     return False
                 continue
+        if keyboard_interface is not None:
+            keyboard_interface.advance()
         action_tensor = torch.Tensor(action).reshape([1, action.shape[0]])
         env.step(torch.Tensor(action_tensor))
     if success_term is not None:
