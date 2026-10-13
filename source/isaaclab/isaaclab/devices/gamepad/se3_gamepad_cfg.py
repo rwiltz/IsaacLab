@@ -21,7 +21,7 @@ class Se3GamepadCfg(DeviceCfg):
     """Configuration for SE3 gamepad devices."""
 
     gripper_term: bool = True
-    dead_zone: float = 0.01
+    dead_zone: float = 0.15
     pos_sensitivity: float = 1.0
     rot_sensitivity: float = 1.6
     class_type: type[Se3Gamepad] | str = "{DIR}.se3_gamepad:Se3Gamepad"
