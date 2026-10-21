@@ -109,16 +109,49 @@ For direct Python launches, ``NV_API_KEY`` is an alternative; an explicit
 ``--api_key_file`` takes precedence. Do not put keys in scripts, traces, or
 version control.
 
-From a desktop terminal, start the G1 viewport demonstration:
+.. _astra-g1-bin-drop-reproduction:
+
+Reproduce the G1 bin-drop experiment
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+From a desktop terminal, use the same prompt, head and wrist cameras,
+action-chunk timing, and inference settings as the bin-drop branch:
 
 .. code-block:: bash
 
-   scripts/environments/teleoperation/launch_astra_viewport.sh
+   OMNI_KIT_ACCEPT_EULA=YES uv run --no-sync python scripts/environments/teleoperation/teleop_astra_agent.py \
+     --api_key_file "$HOME/.config/openai/api_key" \
+     --base_url https://inference-api.nvidia.com/v1 \
+     --model openai/openai/gpt-6-astra \
+     --api_format chat_completions \
+     --task IsaacContrib-PickPlace-FixedBaseUpperBodyIK-G1-Abs \
+     --cameras robot_pov_cam,left_wrist_cam,right_wrist_cam \
+     --bin_drop --pause_during_inference \
+     --action_chunk_size 8 --waypoint_seconds 1 \
+     --system1_timeout 75 --system1_max_age 120 \
+     --system2_effort medium --system2_timeout 180 \
+     --system2_interval 300 --system2_max_age 360 \
+     --reset_on_success --max_episodes 2 \
+     --goal "Pick up the steering wheel with the left hand, lift it clear, and transfer support to the right hand before opening and retracting the left. Carry the wheel fully over any reachable part of the bin opening while retaining a secure grasp. Drop it by opening the right hand at a stationary pose; careful placement on the floor or leveling the wheel is unnecessary. If the open thumb remains hooked on the rim, tip the open thumb downward to let gravity release the wheel, keeping the wheel over the bin. Allow actual simulation time for opening, falling and settling. Withdraw clear and verify the wheel rests inside the bin with both hands open and no robot support. Keep the base fixed." \
+     --trace "logs/astra/drop-$(date +%Y%m%d-%H%M%S).jsonl" \
+     renderer=isaacsim_rtx visualizer=kit
 
-The helper selects the provider, camera views, action chunks, inference timeouts,
-and verified bin-drop completion. Its goal covers left-hand pickup, transfer to
-the right hand, and dropping into the bin. Override the goal and output path for
-a smaller experiment:
+The goal covers left-hand pickup, transfer to the right hand, and dropping into
+the bin. ``--bin_drop`` supplies environment-derived task criteria and checks for
+release and settling locally. ``--reset_on_success --max_episodes 2`` starts a
+fresh attempt after verified success and stops after two completed attempts.
+This reproduces the setup; Astra generates new actions on each run.
+
+The viewport helper contains the same prompt and settings, so the shorter
+equivalent is:
+
+.. code-block:: bash
+
+   scripts/environments/teleoperation/launch_astra_viewport.sh \
+       --reset_on_success --max_episodes 2 \
+       --trace "logs/astra/drop-$(date +%Y%m%d-%H%M%S).jsonl"
+
+Override the goal and output path for a smaller experiment:
 
 .. code-block:: bash
 

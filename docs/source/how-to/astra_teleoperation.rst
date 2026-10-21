@@ -21,6 +21,12 @@ and teleoperation dependencies with the repository's uv workflow:
 
    uv sync --extra isaacsim --extra teleop
 
+After accepting the NVIDIA Omniverse EULA, set this in the launch terminal:
+
+.. code-block:: bash
+
+   export OMNI_KIT_ACCEPT_EULA=YES
+
 First check simulator startup, observations, cameras, and action mapping with a
 local policy that holds the wrists and opens the hands. This mode makes no API requests:
 
@@ -55,7 +61,10 @@ replace this instruction, or append ``--astra_log_level DEBUG`` for waypoint log
 
    scripts/environments/teleoperation/launch_astra_viewport.sh
 
-Then supply a task instruction:
+For the exact bin-drop prompt and a complete ``uv run`` command with camera,
+timing, and reset settings, see :ref:`astra-g1-bin-drop-reproduction`.
+
+For a different task instruction, use the Python launcher directly:
 
 .. code-block:: bash
 
@@ -77,7 +86,7 @@ deployment. The corresponding defaults can also be set with ``ASTRA_MODEL``,
 key environment variable. For OpenAI's public API, use an OpenAI-issued key and
 ``--base_url https://api.openai.com/v1 --model gpt-6-astra --api_format responses``.
 
-The default goal is to hold the wrists, keep the hands open, and observe. Camera
+The Python launcher's default goal is to hold the wrists, keep the hands open, and observe. Camera
 frames and numerical state are sent to the configured API only in live mode.
 This script controls one simulated G1, with no XR headset or CloudXR session required.
 The launcher disables the training timeout and coarse object-root success reset,
