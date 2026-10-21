@@ -57,6 +57,7 @@ dependencies = [
     "omniverseclient==2.74.0",
     "filelock",
     "lazy_loader>=0.4",
+    "jsonschema>=4.26,<5",  # Astra environment adapters validate custom action contracts.
     # ----- project template generator -----
     "Jinja2",
     # Pink IK stack.

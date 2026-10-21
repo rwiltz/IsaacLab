@@ -492,6 +492,26 @@ How-to Guides
 
       .. container:: guide-entry
 
+         :doc:`Testing environments with Astra </source/how-to/astra_testbed>`
+
+         Run G1 or Cartpole examples, then connect another environment through an explicit action adapter.
+
+         .. container:: guide-metadata
+
+            :guide-tag:`PhysX` :guide-tag:`Isaac Sim`
+
+      .. container:: guide-entry
+
+         :doc:`Controlling fixed-base G1 with Astra </source/how-to/astra_teleoperation>`
+
+         Run visual action inference and scene planning through the fixed-base G1 wrist and finger action interface.
+
+         .. container:: guide-metadata
+
+            :guide-tag:`PhysX` :guide-tag:`Isaac Sim`
+
+      .. container:: guide-entry
+
          :doc:`Setting up Isaac Capture with CloudXR </source/how-to/cloudxr_teleoperation>`
 
          Connect XR devices through CloudXR for immersive teleoperation.
