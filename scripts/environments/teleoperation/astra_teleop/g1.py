@@ -26,7 +26,6 @@ _WRIST_LINKS = ("left_wrist_yaw_link", "right_wrist_yaw_link")
 # joint signs in the G1 kinematics asset; thumb opposition remains centered.
 _CLOSED_LEFT_HAND = (0.0, 0.36, 0.63, -0.9, -0.9, -0.9, -0.9)
 _CLOSED_RIGHT_HAND = (0.0, -0.36, -0.63, 0.9, 0.9, 0.9, 0.9)
-_GRIP_SPEED = 0.8
 
 
 class G1ActionAdapter:
@@ -36,10 +35,13 @@ class G1ActionAdapter:
     and encoded images may be handed to inference workers.
     """
 
-    def __init__(self, env: ManagerBasedRLEnv, perception: ObjectPerception | None = None):
+    def __init__(self, env: ManagerBasedRLEnv, perception: ObjectPerception | None = None, *, grip_speed: float = 1.6):
         from isaaclab.controllers.pink_ik import LocalFrameTaskCfg
         from isaaclab.envs.mdp.actions.pink_actions_cfg import PinkInverseKinematicsActionCfg
 
+        if isinstance(grip_speed, bool) or not math.isfinite(grip_speed) or grip_speed <= 0:
+            raise ValueError("Grip speed must be positive and finite.")
+        self.grip_speed = grip_speed
         self.env = env
         self.perception = perception
         manager = env.action_manager
@@ -218,7 +220,7 @@ class G1ActionAdapter:
                 "closed": self._grip_targets(True, True)[0].cpu().tolist(),
             },
             "grip_trajectory": (
-                "Each control tick ramps joints toward soft-limit-clipped endpoints at 0.8 rad/s. "
+                f"Each control tick ramps joints toward soft-limit-clipped endpoints at {self.grip_speed:g} rad/s. "
                 "The path obeys physical joint limits. Inference waits retain accepted finger targets. "
                 "Explicit stop, plan expiry, or single-command expiry holds measured joints. "
                 "Neutral grip booleans retain the previous requested states, initially open."
@@ -226,7 +228,7 @@ class G1ActionAdapter:
             "limits": {
                 "wrist_translation_per_command_m": 0.05,
                 "wrist_rotation_per_command_rad": 0.2,
-                "hand_joint_target_speed_rad_s": _GRIP_SPEED,
+                "hand_joint_target_speed_rad_s": self.grip_speed,
             },
             "low_level_control": "Existing Pink IK controls the wrists and hands inside env.step; the base is fixed.",
         }
@@ -468,7 +470,7 @@ class G1ActionAdapter:
         return action
 
     def advance_grip(self, action: torch.Tensor, dt: float) -> torch.Tensor:
-        """Advance finger setpoints by at most ``0.8 * dt`` [rad], leaving wrist goals unchanged.
+        """Advance finger setpoints by at most ``grip_speed * dt`` [rad], leaving wrist goals unchanged.
 
         Args:
             action: Previously accepted action with shape (1, 28).
@@ -486,7 +488,7 @@ class G1ActionAdapter:
             result[:, 14:] = self.robot.data.joint_pos.torch[:, self._hand_ids]
         else:
             position = self._grip_position + (self._grip_target - self._grip_position).clamp(
-                min=-_GRIP_SPEED * dt, max=_GRIP_SPEED * dt
+                min=-self.grip_speed * dt, max=self.grip_speed * dt
             )
             # Zero-angle startup can lie outside soft limits. Clip endpoints to
             # soft limits and the path to physical limits to avoid a startup jump.

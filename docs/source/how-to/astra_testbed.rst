@@ -63,7 +63,7 @@ Run a bounded test without an inference key:
 .. code-block:: bash
 
    uv run --no-sync python scripts/environments/teleoperation/teleop_astra_agent.py \
-       --mock --max_steps 120 --trace logs/astra/g1-mock.jsonl \
+       --device cpu --mock --max_steps 120 --trace logs/astra/g1-mock.jsonl \
        renderer=isaacsim_rtx visualizer=none
 
 Mock mode uses the same simulator and action validation, with a local client that
@@ -111,11 +111,12 @@ version control.
 
 .. _astra-g1-bin-drop-reproduction:
 
-Reproduce the G1 bin-drop experiment
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Run the G1 bin-drop experiment
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-From a desktop terminal, use the same prompt, head and wrist cameras,
-action-chunk timing, and inference settings as the bin-drop branch:
+From a desktop terminal, run with CPU physics, head and wrist cameras, and
+eight waypoints of 0.5 simulation seconds each. RTX camera rendering still
+requires a supported NVIDIA GPU:
 
 .. code-block:: bash
 
@@ -125,9 +126,11 @@ action-chunk timing, and inference settings as the bin-drop branch:
      --model openai/openai/gpt-6-astra \
      --api_format chat_completions \
      --task IsaacContrib-PickPlace-FixedBaseUpperBodyIK-G1-Abs \
+     --device cpu \
      --cameras robot_pov_cam,left_wrist_cam,right_wrist_cam \
      --bin_drop --pause_during_inference \
-     --action_chunk_size 8 --waypoint_seconds 1 \
+     --action_chunk_size 8 --waypoint_seconds 0.5 \
+     --wrist_linear_speed 0.1 --wrist_angular_speed 0.8 --grip_speed 1.6 \
      --system1_timeout 75 --system1_max_age 120 \
      --system2_effort medium --system2_timeout 180 \
      --system2_interval 300 --system2_max_age 360 \
@@ -140,7 +143,9 @@ The goal covers left-hand pickup, transfer to the right hand, and dropping into
 the bin. ``--bin_drop`` supplies environment-derived task criteria and checks for
 release and settling locally. ``--reset_on_success --max_episodes 2`` starts a
 fresh attempt after verified success and stops after two completed attempts.
-This reproduces the setup; Astra generates new actions on each run.
+Astra generates new actions on each run. The wrist setpoint limits are 0.1 m/s
+and 0.8 rad/s, and finger setpoints move at up to 1.6 rad/s. These are command
+limits; measured robot motion depends on the controller and contacts.
 
 The viewport helper contains the same prompt and settings, so the shorter
 equivalent is:
@@ -150,6 +155,15 @@ equivalent is:
    scripts/environments/teleoperation/launch_astra_viewport.sh \
        --reset_on_success --max_episodes 2 \
        --trace "logs/astra/drop-$(date +%Y%m%d-%H%M%S).jsonl"
+
+To reproduce the earlier cautious motion settings, override the helper's
+limits and waypoint duration:
+
+.. code-block:: bash
+
+   scripts/environments/teleoperation/launch_astra_viewport.sh \
+       --wrist_linear_speed 0.025 --wrist_angular_speed 0.4 --grip_speed 0.8 \
+       --waypoint_seconds 1.0
 
 Override the goal and output path for a smaller experiment:
 
@@ -326,13 +340,18 @@ pauses while waiting for inference. Those scheduling choices affect observation
 age and contact feedback. Tune them from measured latency and task dynamics,
 then evaluate success separately from action validity or simulator startup.
 
-The prior G1 work demonstrated calibrated physical grasps and an Astra-generated
-release from a restored near-bin state. A corrected geometry check and a separate
-no-API restored hold verified that released wheel resting in the bin. That is
-limited evidence for that scene and state. Fresh pickup, handoff, drop, and
-repeated complete episodes have not been validated as a reliable general policy.
-The testbed makes those experiments repeatable; it does not establish success on
-an arbitrary registered environment.
+On October 21, 2026, these CPU settings completed a fresh left-hand pickup,
+right-hand handoff, and verified bin drop in the
+``codex/astra-testbed-consolidated`` development branch. The episode took 44.36
+simulation seconds and 611.50 wall seconds. Active execution took approximately
+46.6 wall seconds; inference pauses accounted for the rest. All release, support,
+and settling conditions passed. Three earlier cautious runs in that development
+checkout also completed successfully, using 134--142 simulation seconds and
+19.9--22.1 wall minutes per episode. The settings, device, and model-generated
+motions differ between these runs, so the comparison does not isolate individual
+optimizations. The faster settings have one completed trial in that scene; this
+backport has not repeated that full live experiment, and broader reliability
+remains to be measured.
 
 Check the active checkout
 -------------------------

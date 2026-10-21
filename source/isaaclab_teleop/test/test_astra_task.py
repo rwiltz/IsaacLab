@@ -158,6 +158,10 @@ def test_rotation_clearance_catches_thin_near_wall_footprint_and_reports_impossi
     rolled = task.update(**state, dt=0)
     assert rolled["measurements"]["sphere_center_bin_m"] == pytest.approx([0, -0.05, 0.3])
     assert rolled["measurements"]["rotation_safe_xy_margin_m"] == pytest.approx(0.20 - radius)
+    # These distinct object/bin rotations map object (X, Y, Z) to bin (X, -Z, Y).
+    assert np.asarray(rolled["measurements"]["object_bounds_bin_m"]) == pytest.approx(
+        np.array([[-0.14, -0.19, 0.295], [0.14, 0.09, 0.305]])
+    )
 
     container["interior_bounds_container_m"][0][1] = -0.1
     container["interior_bounds_container_m"][1][1] = 0.1

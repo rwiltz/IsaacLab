@@ -93,8 +93,9 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--waypoint_seconds", type=float, default=0.5, help="Simulation seconds per waypoint in chunk mode."
     )
-    parser.add_argument("--wrist_linear_speed", type=float, default=0.025, help="Wrist setpoint speed limit [m/s].")
-    parser.add_argument("--wrist_angular_speed", type=float, default=0.4, help="Wrist setpoint rotation limit [rad/s].")
+    parser.add_argument("--wrist_linear_speed", type=float, default=0.1, help="Wrist setpoint speed limit [m/s].")
+    parser.add_argument("--wrist_angular_speed", type=float, default=0.8, help="Wrist setpoint rotation limit [rad/s].")
+    parser.add_argument("--grip_speed", type=float, default=1.6, help="Finger joint setpoint speed limit [rad/s].")
     parser.add_argument(
         "--astra_log_level",
         choices=("DEBUG", "INFO", "WARNING", "ERROR"),
@@ -127,8 +128,11 @@ def main(argv: list[str] | None = None) -> None:
         parser.error("--reset_on_success requires --bin_drop so success can be verified independently")
     if not math.isfinite(args.status_interval) or args.status_interval < 0:
         parser.error("status_interval must be finite and nonnegative")
-    if any(not math.isfinite(value) or value <= 0 for value in (args.wrist_linear_speed, args.wrist_angular_speed)):
-        parser.error("wrist speed limits must be positive and finite")
+    if any(
+        not math.isfinite(value) or value <= 0
+        for value in (args.wrist_linear_speed, args.wrist_angular_speed, args.grip_speed)
+    ):
+        parser.error("wrist and grip speed limits must be positive and finite")
     _configure_logging(args.astra_log_level)
     args.cameras = [name.strip() for name in args.cameras.split(",")]
     if not all(args.cameras) or len(set(args.cameras)) != len(args.cameras):
@@ -178,6 +182,9 @@ def main(argv: list[str] | None = None) -> None:
     configure_object_contact_sensor(env_cfg.scene)
     env_cfg.scene.num_envs = 1
     env_cfg.sim.device = args.device
+    # One render per control step is enough for the viewport and inference
+    # snapshots; keep the physics substeps and action cadence unchanged.
+    env_cfg.sim.render_interval = max(env_cfg.sim.render_interval, env_cfg.decimation)
     env_cfg.env_name = args.task
     env_cfg.terminations.time_out = None
     args.original_success_cfg = env_cfg.terminations.success
@@ -350,7 +357,7 @@ def run(env, pipeline: AstraPipeline, args: argparse.Namespace, trace) -> None:
     with torch.inference_mode():
         observations, _ = env.reset()
         perception = ObjectPerception(env) if "object_hand_contact" in env.scene.sensors else None
-        adapter = G1ActionAdapter(env, perception=perception)
+        adapter = G1ActionAdapter(env, perception=perception, grip_speed=args.grip_speed)
         task_observer = BinDropObserver(env, perception, adapter, args.original_success_cfg) if args.bin_drop else None
         task_progress = task_observer.update(0.0) if task_observer is not None else None
         action_spec = adapter.describe()
@@ -396,6 +403,12 @@ def run(env, pipeline: AstraPipeline, args: argparse.Namespace, trace) -> None:
             env.step_dt,
         )
         logger.info("Goal: %s", pipeline.config.goal)
+        logger.info(
+            "Motion limits: wrists %.3f m/s, %.3f rad/s; fingers %.3f rad/s.",
+            args.wrist_linear_speed,
+            args.wrist_angular_speed,
+            args.grip_speed,
+        )
         if pipeline.config.action_chunk_size > 1:
             logger.info(
                 "Chunking: %d waypoints x %.2fs = %.2f simulation seconds; one next chunk prefetched.",

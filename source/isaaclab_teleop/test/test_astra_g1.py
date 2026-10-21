@@ -158,6 +158,9 @@ def test_command_limits_and_invalid_quaternions(environment):
     command["left_grip_closed"] = 1
     with pytest.raises(ValueError, match="booleans"):
         adapter.action(command)
+    for invalid_speed in (0, -1, float("nan"), float("inf"), True):
+        with pytest.raises(ValueError, match="Grip speed must be positive and finite"):
+            G1ActionAdapter(environment, grip_speed=invalid_speed)
 
 
 def test_grip_trajectory_joint_order_limits_reversal_and_idle(environment):
@@ -168,7 +171,7 @@ def test_grip_trajectory_joint_order_limits_reversal_and_idle(environment):
     robot.data.soft_joint_pos_limits.torch[0, 8] = torch.tensor([-0.4, -0.08])
     robot.data.joint_pos_limits.torch[0, 4] = torch.tensor([0, 1])
     robot.data.soft_joint_pos_limits.torch[0, 4] = torch.tensor([0.05, 0.9])
-    adapter = G1ActionAdapter(environment)
+    adapter = G1ActionAdapter(environment, grip_speed=0.8)
     command = adapter.snapshot({"policy": {}}, 0, 0, 0)["neutral_command"]
     assert command["left_grip_closed"] is False and command["right_grip_closed"] is False
     assert adapter.grippers_open() == [True, True]
@@ -229,6 +232,27 @@ def test_grip_trajectory_joint_order_limits_reversal_and_idle(environment):
     robot.data.joint_pos.torch[0, 8] = -0.08
     robot.data.joint_pos.torch[0, 4] = 0.16
     assert adapter.grippers_open() == [True, False]
+
+
+@pytest.mark.parametrize(("grip_speed", "dwell_endpoints"), [(None, [0.8, 0.9]), (0.8, [0.4, 0.8, 0.9])])
+def test_configured_grip_speed_completes_closure_across_half_second_waypoints(environment, grip_speed, dwell_endpoints):
+    adapter = (
+        G1ActionAdapter(environment) if grip_speed is None else G1ActionAdapter(environment, grip_speed=grip_speed)
+    )
+    assert adapter.describe()["limits"]["hand_joint_target_speed_rad_s"] == (1.6 if grip_speed is None else 0.8)
+    command = adapter.snapshot({"policy": {}}, 0, 0, 0)["neutral_command"]
+    command["left_grip_closed"] = True
+    command["right_grip_closed"] = True
+    endpoints = adapter.describe()["grip_targets_in_action_order_rad"]["closed"]
+    for index, expected_curl in enumerate(dwell_endpoints):
+        # New waypoints retain the target ramp even when measured joints lag behind it.
+        action = adapter.action(command)
+        for _ in range(25):
+            action = adapter.advance_grip(action, 0.02)
+        assert float(action[0, 14:].abs().max()) == pytest.approx(expected_curl, abs=1e-6)
+        if index < len(dwell_endpoints) - 1:
+            assert action[0, 14:].tolist() != pytest.approx(endpoints)
+    assert action[0, 14:].tolist() == pytest.approx(endpoints, abs=1e-6)
 
 
 @pytest.mark.parametrize(("chunk_size", "wrist_speed"), [(1, 10.0), (3, 10.0), (3, 0.5)])
@@ -308,6 +332,7 @@ def test_runner_wait_preemption_and_expiry_preserve_correct_targets(environment,
         status_interval=0,
         wrist_linear_speed=wrist_speed,
         wrist_angular_speed=10.0,
+        grip_speed=0.8,
     )
     trace = io.StringIO()
     run_astra(environment, ScriptedPipeline(), args, trace)
@@ -414,6 +439,7 @@ def test_runner_pauses_physics_until_reply_but_executes_during_prefetch(environm
         status_interval=0,
         wrist_linear_speed=0.5,
         wrist_angular_speed=10.0,
+        grip_speed=0.8,
     )
     monkeypatch.setattr("teleop_astra_agent.time.sleep", lambda _seconds: None)
     trace = io.StringIO()
@@ -541,6 +567,7 @@ def test_verified_success_resets_once_and_starts_fresh_episode_metrics(environme
         status_interval=0,
         wrist_linear_speed=0.025,
         wrist_angular_speed=0.4,
+        grip_speed=0.8,
     )
     pipeline = EpisodePipeline()
     trace = io.StringIO()

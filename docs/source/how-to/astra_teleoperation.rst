@@ -33,7 +33,7 @@ local policy that holds the wrists and opens the hands. This mode makes no API r
 .. code-block:: bash
 
    uv run --no-sync python scripts/environments/teleoperation/teleop_astra_agent.py \
-       --mock --max_steps 250 --trace logs/astra/mock.jsonl \
+       --device cpu --mock --max_steps 250 --trace logs/astra/mock.jsonl \
        renderer=isaacsim_rtx visualizer=none
 
 Set ``NV_API_KEY`` in the launching shell, or provide an owner-readable key
@@ -51,9 +51,10 @@ It locates the checkout and saved key automatically and selects NVIDIA Inference
 Its default goal is to pick up the steering wheel with the left hand, hand it off
 to the right hand, and drop it into the bin. It preserves the carried grasp orientation,
 opens above the bin, and allocates actual simulation time for falling and settling.
-It enables verified bin-drop completion, 8-waypoint chunks with a
-1-second dwell per waypoint, longer inference timeouts, and physics pauses during
-inference waits. Pass ``--action_chunk_size 30``
+It selects CPU physics and enables verified bin-drop completion, 8-waypoint chunks
+with a 0.5-second dwell per waypoint, longer inference timeouts, and physics pauses
+during inference waits. RTX cameras and the viewport still use the GPU.
+Pass ``--action_chunk_size 30``
 for longer chunks. Pass ``--goal`` to
 replace this instruction, or append ``--astra_log_level DEBUG`` for waypoint logs:
 
@@ -69,6 +70,7 @@ For a different task instruction, use the Python launcher directly:
 .. code-block:: bash
 
    uv run --no-sync python scripts/environments/teleoperation/teleop_astra_agent.py \
+       --device cpu \
        --api_key_file ~/.config/openai/api_key \
        --goal "Observe the object and move the right hand toward it slowly." \
        --trace logs/astra/reach.jsonl \
@@ -178,6 +180,9 @@ Inference and simulation timing
 
 The simulation thread targets the environment's 50 Hz control rate when calling
 ``env.step`` (200 Hz physics with decimation 4), paced against a monotonic wall clock.
+The launcher renders once per executed control step, or 50 Hz in simulation time,
+while preserving the 200 Hz physics rate. Render-only updates during inference
+pauses do not advance physics or execute actions.
 Rendering and simulation cost can reduce the actual wall-clock rate.
 Two independent inference workers operate on detached observation snapshots:
 
@@ -292,17 +297,21 @@ chunks and invalidates dependent requests. A failed or stale prefetch leaves an
 already accepted active chunk running; the buffer holds if its successor is not
 ready. Chunking trades more motion between observations for fewer inference gaps.
 It cannot guarantee continuous execution if generation takes longer than a chunk.
-One NVIDIA InferenceHub probe with the actual scene camera took 43 seconds for
+In an earlier benchmark, one NVIDIA InferenceHub probe with the actual scene camera took 43 seconds for
 30 waypoints. Simulator measurements ranged from 16 to 30 control steps per wall
 second, so a 30-waypoint chunk with one-second dwell can last roughly 50 to 94 wall
-seconds. The example allows a queued chunk to age for up to 120 wall seconds and
+seconds. These are historical measurements from before the current CPU and
+rendering settings. The example allows a queued chunk to age for up to 120 wall seconds and
 spaces System 2 requests 120 seconds apart. Frequent changed plans can otherwise
 discard slow System 1 requests before they finish. These settings trade more
 latency tolerance for older observations and less frequent high-level reassessment.
 Use console timings to tune them; one API measurement is not a latency guarantee.
 Use short, bounded moves around contact: a grasp or handoff needs fresh feedback
-before proceeding to the next stage. Full steering-wheel task success has not
-been validated.
+before proceeding to the next stage. In the ``codex/astra-testbed-consolidated``
+development branch, these CPU settings completed one fresh pickup, handoff, and
+verified bin drop in 44.36 simulation seconds and 611.50 wall seconds on
+October 21, 2026. See :doc:`astra_testbed` for the validation scope and comparison
+with earlier runs.
 
 Observations and action contract
 --------------------------------
@@ -382,20 +391,23 @@ the existing Pink action handles that conversion.
 
 Each accepted command may move wrists at most 0.05 m and rotate them at most
 0.2 rad from measured state. A trajectory advances wrist setpoints each control
-tick at no more than 0.025 m/s and 0.4 rad/s, using shortest-arc quaternion
+tick at no more than 0.1 m/s and 0.8 rad/s, using shortest-arc quaternion
 interpolation. ``--wrist_linear_speed`` and ``--wrist_angular_speed`` override
 these limits. They limit commanded velocity, not actual acceleration or tracking
 error. Astra receives these limits and must allocate enough waypoint dwell for
-the move: a 5 cm destination takes at least two seconds at the default speed.
+the move: a 5 cm destination takes at least 0.5 seconds at the default speed.
 Wrist interpolation runs during the command's allotted execution time. At a
 chunk feedback checkpoint or buffer underrun, it freezes at the last commanded
 setpoint. The finger controller advances toward the selected open or closed pose
 on every simulation control step, including ordinary chunk inference waits,
-capped at 0.8 rad/s per joint and the articulation's joint limits. An expired
+capped at 1.6 rad/s per joint and the articulation's joint limits.
+``--grip_speed`` overrides the finger speed limit. An expired
 plan, a single-command expiry, or an explicit stop instead holds measured wrists
 and fingers at the pose captured on entering idle and cancels the finger
 trajectory. Idle ticks reuse that captured pose rather than following measured
 drift.
+For the earlier cautious motion settings, use ``--wrist_linear_speed 0.025
+--wrist_angular_speed 0.4 --grip_speed 0.8 --waypoint_seconds 1.0``.
 Unsupported action layouts fail at initialization.
 Other robots need their own adapter with a defined observation/action contract.
 

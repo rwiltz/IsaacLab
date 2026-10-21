@@ -20,7 +20,7 @@ export OMNI_KIT_ACCEPT_EULA=YES
 
 # Check G1 simulator, cameras, and action mapping without API requests.
 uv run --no-sync python scripts/environments/teleoperation/teleop_astra_agent.py \
-  --mock --max_steps 120 --trace logs/astra/g1-mock.jsonl \
+  --device cpu --mock --max_steps 120 --trace logs/astra/g1-mock.jsonl \
   renderer=isaacsim_rtx visualizer=none
 ```
 
@@ -38,9 +38,9 @@ For 401, 403, or 429 errors, check key validity, model access, and quota or rate
 limits with InferenceHub support. Its [wiki](https://inference.nvidia.com/wiki)
 contains account guidance. The helpers do not print the key.
 
-To reproduce the G1 bin-drop experiment setup, run this from a desktop terminal.
-It uses the same prompt, head and wrist cameras, action-chunk timing, and
-inference settings as the bin-drop branch:
+To run the G1 bin-drop experiment, use this from a desktop terminal. It uses CPU
+physics, head and wrist cameras, and eight waypoints of 0.5 simulation seconds
+each. RTX camera rendering still requires a supported NVIDIA GPU.
 
 ```bash
 OMNI_KIT_ACCEPT_EULA=YES uv run --no-sync python scripts/environments/teleoperation/teleop_astra_agent.py \
@@ -49,9 +49,11 @@ OMNI_KIT_ACCEPT_EULA=YES uv run --no-sync python scripts/environments/teleoperat
   --model openai/openai/gpt-6-astra \
   --api_format chat_completions \
   --task IsaacContrib-PickPlace-FixedBaseUpperBodyIK-G1-Abs \
+  --device cpu \
   --cameras robot_pov_cam,left_wrist_cam,right_wrist_cam \
   --bin_drop --pause_during_inference \
-  --action_chunk_size 8 --waypoint_seconds 1 \
+  --action_chunk_size 8 --waypoint_seconds 0.5 \
+  --wrist_linear_speed 0.1 --wrist_angular_speed 0.8 --grip_speed 1.6 \
   --system1_timeout 75 --system1_max_age 120 \
   --system2_effort medium --system2_timeout 180 \
   --system2_interval 300 --system2_max_age 360 \
@@ -65,7 +67,9 @@ The goal is left-hand pickup, handoff to the right hand, then release into the
 bin. `--bin_drop` supplies the environment-derived task criteria and checks for
 release and settling locally. `--reset_on_success --max_episodes 2` starts a
 fresh attempt after verified success and stops after two completed attempts.
-This reproduces the setup; Astra generates new actions on each run.
+Astra generates new actions on each run. The wrist setpoint limits are 0.1 m/s
+and 0.8 rad/s, and finger setpoints move at up to 1.6 rad/s. These are command
+limits; measured robot motion depends on the controller and contacts.
 
 The shorter equivalent uses the helper's built-in prompt and settings:
 
@@ -73,6 +77,15 @@ The shorter equivalent uses the helper's built-in prompt and settings:
 scripts/environments/teleoperation/launch_astra_viewport.sh \
   --reset_on_success --max_episodes 2 \
   --trace "logs/astra/drop-$(date +%Y%m%d-%H%M%S).jsonl"
+```
+
+To reproduce the earlier cautious motion settings, override the helper's limits
+and waypoint duration:
+
+```bash
+scripts/environments/teleoperation/launch_astra_viewport.sh \
+  --wrist_linear_speed 0.025 --wrist_angular_speed 0.4 --grip_speed 0.8 \
+  --waypoint_seconds 1.0
 ```
 
 The live helper uses `https://inference-api.nvidia.com/v1`, model
@@ -107,9 +120,14 @@ command schema and validation, action conversion, and measured task criteria.
 - [G1 controls, cameras, limits, and bin-drop criteria](../../../docs/source/how-to/astra_teleoperation.rst)
 - [Adapter source examples](astra_teleop/adapters.py)
 
-Mock runs verify integration without external inference. Prior G1 release evidence
-came from a restored near-bin state and a separate physical hold verification;
-fresh full-task completion and repeated Astra episodes remain unverified.
+Mock runs verify integration without external inference. On October 21, 2026,
+these CPU settings completed a fresh left-hand pickup, right-hand handoff, and
+verified bin drop in the `codex/astra-testbed-consolidated` development branch:
+44.36 simulation seconds and 611.50 wall seconds. Active execution took
+approximately 46.6 wall seconds; inference pauses accounted for the rest. Three
+earlier cautious runs in that checkout also completed successfully. These are
+scene-specific observations; the faster settings have one completed trial, and
+this backport has not repeated that full live experiment.
 
 If a new flag is unrecognized, confirm you are in `IsaacLab-astra-testbed`, not an
 older teleoperation worktree. Check the interpreter and imported checkout:

@@ -16,7 +16,9 @@ exec uv run --no-sync python "${astra_script_dir}/teleop_astra_agent.py" \
     --base_url https://inference-api.nvidia.com/v1 \
     --model openai/openai/gpt-6-astra \
     --api_format chat_completions \
-    --action_chunk_size 8 --waypoint_seconds 1.0 \
+    --device cpu \
+    --action_chunk_size 8 --waypoint_seconds 0.5 \
+    --wrist_linear_speed 0.1 --wrist_angular_speed 0.8 --grip_speed 1.6 \
     --pause_during_inference \
     --bin_drop \
     --system1_timeout 75 --system1_max_age 120 \

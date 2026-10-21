@@ -213,11 +213,12 @@ class BinDropTask:
                 raise ValueError("Bin contact force must contain three finite numbers.")
             support = float(force @ self._bin_rotation[:, 2])
         object_rotation = _rotation(pose[3:])
-        points_environment = self._points @ object_rotation.T + pose[:3]
-        points_bin = (points_environment - self._bin_position) @ self._bin_rotation
-        sphere_center_bin = (
-            self._sphere_center @ object_rotation.T + pose[:3] - self._bin_position
-        ) @ self._bin_rotation
+        # Compose once before transforming the full mesh, avoiding an environment-frame copy.
+        object_to_bin_rotation = object_rotation.T @ self._bin_rotation
+        object_origin_bin = (pose[:3] - self._bin_position) @ self._bin_rotation
+        # Keep each coordinate column contiguous for the full-mesh extrema reductions.
+        points_bin = (object_to_bin_rotation.T @ self._points.T + object_origin_bin[:, None]).T
+        sphere_center_bin = self._sphere_center @ object_to_bin_rotation + object_origin_bin
         rotation_margin = float(
             np.min(
                 np.concatenate(
@@ -248,8 +249,8 @@ class BinDropTask:
                 np.min(
                     np.concatenate(
                         (
-                            clipped[:, :2].min(axis=0) - self._interior[0, :2],
-                            self._interior[1, :2] - clipped[:, :2].max(axis=0),
+                            np.array([clipped[:, 0].min(), clipped[:, 1].min()]) - self._interior[0, :2],
+                            self._interior[1, :2] - np.array([clipped[:, 0].max(), clipped[:, 1].max()]),
                         )
                     )
                 )
