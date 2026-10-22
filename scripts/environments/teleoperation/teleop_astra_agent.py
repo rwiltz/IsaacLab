@@ -20,6 +20,13 @@ from pathlib import Path
 
 from astra_teleop.cli import normalize_cli_args
 from astra_teleop.core import AstraConfig, AstraPipeline, MockClient
+from astra_teleop.recording import (
+    add_recording_args,
+    close_recording,
+    configure_recording,
+    export_recording,
+    reset_after_export,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -120,12 +127,15 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--trace", type=Path, help="Write JSONL state, inference events, and applied actions (no images/key)."
     )
+    add_recording_args(parser)
     add_launcher_args(parser)
     args, overrides = setup_preset_cli(parser, normalize_cli_args(argv))
     if args.image_size < 1 or args.max_steps < 0 or args.max_episodes < 0:
         parser.error("image_size must be positive; max_steps and max_episodes must be nonnegative")
     if args.reset_on_success and not args.bin_drop:
         parser.error("--reset_on_success requires --bin_drop so success can be verified independently")
+    if args.dataset_file and args.dataset_export_mode == "success" and not args.bin_drop:
+        parser.error("Successful G1 recording requires --bin_drop; use --dataset_export_mode all for other goals")
     if not math.isfinite(args.status_interval) or args.status_interval < 0:
         parser.error("status_interval must be finite and nonnegative")
     if any(
@@ -195,12 +205,16 @@ def main(argv: list[str] | None = None) -> None:
     env_cfg.num_rerenders_on_reset = max(env_cfg.num_rerenders_on_reset, 3)
     args.enable_cameras = True
     args.require_kit = True
+    args.dataset_file = configure_recording(env_cfg, args.task, args.dataset_file, args.dataset_export_mode)
 
     with launch_simulation(env_cfg, args), ExitStack() as cleanup:
         import gymnasium as gym
 
         env = gym.make(args.task, cfg=env_cfg).unwrapped
         cleanup.callback(env.close)
+        if args.dataset_file:
+            cleanup.callback(close_recording, env)
+            logger.info("HDF5 recording: %s (export=%s).", args.dataset_file, args.dataset_export_mode)
         pipeline = AstraPipeline(config, client=MockClient() if args.mock else None)
         cleanup.callback(pipeline.close)
         trace = None
@@ -564,6 +578,9 @@ def run(env, pipeline: AstraPipeline, args: argparse.Namespace, trace) -> None:
             if task_observer is not None and not environment_reset:
                 task_progress = task_observer.update(env.step_dt)
             verified_success = not environment_reset and task_progress is not None and task_progress["success"]
+            if verified_success and args.dataset_file:
+                export_recording(env, success=True)
+                logger.info("Exported verified bin-drop demonstration to %s.", args.dataset_file)
             if verified_success or environment_reset:
                 # advance() may have completed a checkpoint on the final physics step.
                 # Attribute those events before resetting the pipeline or ending the run.
@@ -575,7 +592,7 @@ def run(env, pipeline: AstraPipeline, args: argparse.Namespace, trace) -> None:
                 ):
                     break
                 if verified_success:
-                    observations, _ = env.reset()
+                    observations, _ = reset_after_export(env) if args.dataset_file else env.reset()
                 # A termination already reset the environment; invalidate all preceding inference.
                 episode_id += 1
                 pipeline.reset()

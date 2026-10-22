@@ -14,6 +14,9 @@ from types import SimpleNamespace
 import pytest
 import torch
 
+from isaaclab.envs.mdp.recorders.recorders_cfg import ActionStateRecorderManagerCfg
+from isaaclab.managers import DatasetExportMode, RecorderManager
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "scripts/environments/teleoperation"))
 import run_astra_test  # noqa: E402
 from astra_teleop.core import ActionContract  # noqa: E402
@@ -23,6 +26,8 @@ class EnvironmentBoundary:
     """Represent manager-environment autoreset behavior at the runner boundary."""
 
     step_dt = 0.02
+    num_envs = 1
+    device = "cpu"
 
     def __init__(self, native_termination=False):
         self.native_termination = native_termination
@@ -30,14 +35,35 @@ class EnvironmentBoundary:
         self.explicit_resets = 0
         self.generation = 0
         self.render_step_counts = []
-        self.sim = SimpleNamespace(is_running=lambda: True, render=self.render)
+        self.sim = SimpleNamespace(is_running=lambda: True, is_playing=lambda: True, render=self.render)
+        self.cfg = SimpleNamespace(
+            env_name="Test-Task",
+            sim=SimpleNamespace(dt=self.step_dt, render_interval=1),
+            decimation=1,
+            scene=SimpleNamespace(num_envs=1),
+        )
+        self.action_manager = SimpleNamespace(action=torch.zeros(1, 2))
+        self.recorder_manager = RecorderManager(
+            ActionStateRecorderManagerCfg(
+                dataset_export_mode=DatasetExportMode.EXPORT_NONE,
+                record_initial_state=None,
+                record_post_step_states=None,
+                record_pre_step_flat_policy_observations=None,
+                record_post_step_processed_actions=None,
+            ),
+            self,
+        )
 
     def render(self):
         self.render_step_counts.append(len(self.actions))
 
     def step(self, action):
+        self.action_manager.action = action
+        self.recorder_manager.record_pre_step()
         self.actions.append(action.clone())
         if self.native_termination:
+            self.recorder_manager.record_pre_reset([0])
+            self.recorder_manager.reset([0])
             self.generation += 1
         return (
             {"generation": self.generation},
@@ -48,6 +74,8 @@ class EnvironmentBoundary:
         )
 
     def reset(self):
+        self.recorder_manager.record_pre_reset([0])
+        self.recorder_manager.reset([0])
         self.explicit_resets += 1
         self.generation += 1
         return {"generation": self.generation}, {}
@@ -141,6 +169,7 @@ def runner_args(monkeypatch):
         mock=True,
         trace=Path("unused.jsonl"),
         image_trace_dir=None,
+        dataset_file=None,
         cameras=[],
         image_size=640,
         action_chunk_size=8,
@@ -164,6 +193,7 @@ def test_pending_inference_renders_without_stepping_then_executes_non_g1_action(
     assert env.render_step_counts == [0, 0]
     assert len(env.actions) == 1
     assert env.actions[0].tolist() == [[0.25, -0.5]]
+    assert torch.stack(env.recorder_manager.get_episode(0).data["actions"]).tolist() == [[0.25, -0.5]]
     assert pipeline.advance_dts == [env.step_dt]
     assert adapter.progress_dts == [0.0, env.step_dt]
     control_rows = [row for row in map(json.loads, trace.getvalue().splitlines()) if "action" in row]
@@ -172,27 +202,47 @@ def test_pending_inference_renders_without_stepping_then_executes_non_g1_action(
     assert all(row["step"] == 0 for row in control_rows)
 
 
-@pytest.mark.parametrize("native_termination", [True, False])
-def test_native_autoreset_and_verified_success_reset_preserve_episode_boundaries(runner_args, native_termination):
+@pytest.mark.parametrize("native_termination, reset_on_success", [(True, True), (False, True), (False, False)])
+def test_native_autoreset_and_verified_success_reset_preserve_episode_boundaries(
+    runner_args, monkeypatch, native_termination, reset_on_success
+):
     env = EnvironmentBoundary(native_termination=native_termination)
     adapter = AdapterBoundary(success_after_step=True)
     pipeline = InferenceBoundary()
     trace = io.StringIO()
+    runner_args.dataset_file = Path("unused.hdf5")
+    runner_args.reset_on_success = reset_on_success
+    exports = []
+    export_episodes = env.recorder_manager.export_episodes
+
+    def capture_export(*args, **kwargs):
+        episode = env.recorder_manager.get_episode(0)
+        if len(episode.data.get("actions", [])):
+            exports.append((env.generation, episode))
+        return export_episodes(*args, **kwargs)
+
+    monkeypatch.setattr(env.recorder_manager, "export_episodes", capture_export)
 
     run_astra_test.run(env, pipeline, adapter, {"generation": 0}, runner_args, trace)
 
     rows = [json.loads(line) for line in trace.getvalue().splitlines()]
     episodes = [row for row in rows if row.get("event") == "episode_completed"]
-    assert len(env.actions) == 2
-    assert [row["episode_id"] for row in episodes] == [0, 1]
-    assert [snapshot["observations"]["generation"] for snapshot in pipeline.snapshots] == [0, 1]
-    assert [snapshot["episode_id"] for snapshot in pipeline.snapshots] == [0, 1]
-    assert pipeline.reset_count == adapter.reset_count == 1
-    assert env.explicit_resets == (0 if native_termination else 1)
+    expected_episodes = 2 if reset_on_success else 1
+    expected_ids = list(range(expected_episodes))
+    assert len(env.actions) == expected_episodes
+    assert [row["episode_id"] for row in episodes] == expected_ids
+    assert [snapshot["observations"]["generation"] for snapshot in pipeline.snapshots] == expected_ids
+    assert [snapshot["episode_id"] for snapshot in pipeline.snapshots] == expected_ids
+    assert pipeline.reset_count == adapter.reset_count == expected_episodes - 1
+    assert env.explicit_resets == (0 if native_termination else expected_episodes - 1)
+    assert [generation for generation, _ in exports] == expected_ids
+    for _, recorded in exports:
+        assert recorded.success is (not native_termination)
+        assert recorded.data["actions"].tolist() == [[0.25, -0.5]]
     assert all(row["simulation_seconds"] == env.step_dt for row in episodes)
     if native_termination:
         assert all(row["outcome"] == "environment_termination" and row["task_progress"] is None for row in episodes)
         assert adapter.progress_dts == [0.0, 0.0]
     else:
         assert all(row["outcome"] == "verified_success" and row["task_progress"]["success"] for row in episodes)
-        assert adapter.progress_dts == [0.0, env.step_dt, 0.0, env.step_dt]
+        assert adapter.progress_dts == [0.0, env.step_dt] * expected_episodes

@@ -322,6 +322,57 @@ renderer preset. Camera setup and interpretation remain the adapter's
 responsibility; importing a task does not automatically install the G1 wrist
 cameras or G1 manipulation criteria.
 
+Record episodes in HDF5
+----------------------
+
+Both ``teleop_astra_agent.py`` and ``run_astra_test.py`` support opt-in recording
+with ``--dataset_file``. For the G1 experiment above, add recording flags to the
+viewport helper:
+
+.. code-block:: bash
+
+   scripts/environments/teleoperation/launch_astra_viewport.sh \
+       --reset_on_success --max_episodes 2 \
+       --dataset_file "logs/astra/g1-episodes-$(date +%Y%m%d-%H%M%S).hdf5" --dataset_export_mode success
+
+``--reset_on_success`` starts a fresh attempt after verified success.
+``--max_episodes 2`` counts completed attempts, including native terminations;
+it does not request two saved successful episodes. The timestamped output path
+keeps separate launches in separate datasets.
+
+``--dataset_export_mode`` accepts ``success`` (the default) or ``all``. Success
+mode exports only episodes with measured success. For G1 it requires
+``--bin_drop``, already enabled by the helper, so the independent task checker
+decides success; Astra's declaration alone cannot save a successful episode.
+All mode also exports native failures and interrupted or ``--max_steps``-limited
+attempts, marked unsuccessful. Cartpole has no adapter success detector, so use
+all mode to inspect its mock data flow:
+
+.. code-block:: bash
+
+   uv run --no-sync python scripts/environments/teleoperation/run_astra_test.py \
+       --task Isaac-Cartpole --adapter astra_teleop.adapters:CartpoleAdapter \
+       --goal "Balance the pole near upright and keep the cart near the center." \
+       --mock --max_steps 120 --max_episodes 2 \
+       --dataset_file "logs/astra/cartpole-mock-$(date +%Y%m%d-%H%M%S).hdf5" --dataset_export_mode all \
+       physics=isaacsim_physx visualizer=none
+
+Recording uses Isaac Lab's recorder for the actual environment actions,
+processed actions, initial and step states, and policy observations. It retains
+the task's policy observation layout and any configured custom recorder terms.
+Only executed simulation steps contribute step samples; inference pauses do not.
+Changing motion speeds or waypoint durations preserves the G1 action recording
+cadence of 50 Hz during executed simulation steps. Existing HDF5 recordings
+retain their recorded actions and replay unchanged.
+Camera images are included only when the task places them in policy observations
+or custom recorder terms. Inference JPEGs remain a separate
+``--image_trace_dir`` output.
+
+Use a new dataset path ending in ``.hdf5``; an extensionless path receives that
+suffix automatically. Other extensions and existing output files are rejected
+to avoid truncating a previous recording. Recording is disabled when
+``--dataset_file`` is omitted.
+
 Inspect and compare runs
 ------------------------
 

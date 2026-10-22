@@ -21,6 +21,13 @@ from pathlib import Path
 
 from astra_teleop.cli import normalize_cli_args
 from astra_teleop.core import AstraConfig, AstraPipeline, MockClient
+from astra_teleop.recording import (
+    add_recording_args,
+    close_recording,
+    configure_recording,
+    export_recording,
+    reset_after_export,
+)
 
 logger = logging.getLogger("astra_testbed")
 
@@ -89,6 +96,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--max_hold_seconds", type=float, default=1.0)
     parser.add_argument("--action_chunk_size", type=int, default=8)
     parser.add_argument("--waypoint_seconds", type=float, default=0.1)
+    add_recording_args(parser)
     add_launcher_args(parser)
     args, overrides = setup_preset_cli(parser, argv)
     if args.max_steps < 0 or args.max_episodes < 0 or args.image_size < 1:
@@ -150,12 +158,16 @@ def main(argv: list[str] | None = None) -> None:
     env_cfg.env_name = args.task
     args.enable_cameras = bool(args.cameras)
     adapter_class.configure_env(env_cfg, args)
+    args.dataset_file = configure_recording(env_cfg, args.task, args.dataset_file, args.dataset_export_mode)
     with launch_simulation(env_cfg, args), ExitStack() as cleanup:
         import gymnasium as gym
         import torch
 
         env = gym.make(args.task, cfg=env_cfg).unwrapped
         cleanup.callback(env.close)
+        if args.dataset_file:
+            cleanup.callback(close_recording, env)
+            logger.info("HDF5 recording: %s (export=%s).", args.dataset_file, args.dataset_export_mode)
         if env.num_envs != 1:
             raise ValueError("The Astra testbed requires exactly one environment.")
         with torch.inference_mode():
@@ -308,6 +320,9 @@ def run(env, pipeline, adapter, observations, args, trace) -> None:
         # reset scene as a terminal measurement from the preceding attempt.
         progress = None if environment_reset else adapter.task_progress(env.step_dt)
         success = progress is not None and progress["success"] is True
+        if success and args.dataset_file:
+            export_recording(env, success=True)
+            logger.info("Exported verified successful demonstration to %s.", args.dataset_file)
         if success or environment_reset:
             boundary_events = pipeline.drain_events()
             _record_events(boundary_events, latencies)
@@ -331,7 +346,7 @@ def run(env, pipeline, adapter, observations, args, trace) -> None:
             if (success and not args.reset_on_success) or (args.max_episodes and episode_id + 1 >= args.max_episodes):
                 break
             if success:
-                observations, _ = env.reset()
+                observations, _ = reset_after_export(env) if args.dataset_file else env.reset()
             pipeline.reset()
             adapter.reset()
             progress = adapter.task_progress(0.0)

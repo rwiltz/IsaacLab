@@ -111,6 +111,39 @@ Remove `--mock` for live inference after checking the integration. The step and
 episode flags are upper bounds. A model request can take many control timesteps;
 the Cartpole mock is a data-flow test, not a balancing policy.
 
+Both runners can record HDF5 episodes with `--dataset_file`. To save successful
+G1 bin-drop episodes, append recording flags to the helper:
+
+```bash
+scripts/environments/teleoperation/launch_astra_viewport.sh \
+  --reset_on_success --max_episodes 2 \
+  --dataset_file "logs/astra/g1-episodes-$(date +%Y%m%d-%H%M%S).hdf5" --dataset_export_mode success
+```
+
+`--reset_on_success` starts a fresh attempt after verified success.
+`--max_episodes 2` counts completed attempts, including native terminations;
+it does not request two saved successful episodes. The timestamped output path
+keeps separate launches in separate datasets.
+
+`success` is the default export mode. G1 requires `--bin_drop` in this mode
+(already enabled by the helper), so success comes from independent measurements,
+not Astra's declaration. Use `--dataset_export_mode all` to retain unsuccessful
+native terminations and interrupted or `--max_steps`-limited attempts too; these
+are marked unsuccessful. For example, add
+`--dataset_file "logs/astra/cartpole-mock-$(date +%Y%m%d-%H%M%S).hdf5" --dataset_export_mode all` to the
+Cartpole mock command above, whose adapter has no success detector.
+
+The Isaac Lab recorder stores executed environment actions, processed actions,
+initial and step states, and policy observations, retaining the task's policy
+observation layout and configured custom recorder terms. Inference pauses add
+no step samples. Changing motion speeds or waypoint durations preserves the G1
+action recording cadence of 50 Hz during executed simulation steps. Existing
+HDF5 recordings retain their recorded actions and replay unchanged. Camera images
+enter HDF5 only through task policy observations
+or custom recorder terms; use `--image_trace_dir` for inference JPEGs. Choose a
+new output path ending in `.hdf5`, or omit the extension to append it
+automatically. Existing output files are rejected rather than overwritten.
+
 For another environment, import its registration package with
 `--env_module my_project.tasks`, choose `--task My-Registered-Task-v0`, and provide
 `--adapter my_project.astra_adapter:MyAdapter`. The adapter owns observations,
