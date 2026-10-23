@@ -23,5 +23,5 @@ class Se2GamepadCfg(DeviceCfg):
     v_x_sensitivity: float = 1.0
     v_y_sensitivity: float = 1.0
     omega_z_sensitivity: float = 1.0
-    dead_zone: float = 0.01
+    dead_zone: float = 0.15
     class_type: type[Se2Gamepad] | str = "{DIR}.se2_gamepad:Se2Gamepad"
